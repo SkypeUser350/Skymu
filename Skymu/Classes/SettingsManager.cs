@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -153,10 +153,10 @@ namespace Skymu.Preferences
             set => WRITE("BrandingName", value, nameof(BrandingName), "UI/General");
         }
 
-        public static string ColorTheme
+        public static string Colorway
         {
-            get => SELECT("ColorTheme", "Default", "UI/General");
-            set => WRITE("ColorTheme", value, nameof(ColorTheme), "UI/General");
+            get => SELECT("Colorway", "Default", "UI/General");
+            set => WRITE("Colorway", value, nameof(Colorway), "UI/General");
         }
         public static string CredsText
         {
@@ -183,10 +183,10 @@ namespace Skymu.Preferences
             get => SELECT("UseSystemCulture", true, "UI/General");
             set => WRITE("UseSystemCulture", value, nameof(UseSystemCulture), "UI/General");
         }
-        public static string Interface
+        public static string Theme
         {
-            get => SELECT("Interface", "Skyaeris", "UI/General");
-            set => WRITE("Interface", value, nameof(Interface), "UI/General");
+            get => SELECT("Theme", "Skype5", "UI/General");
+            set => WRITE("Theme", value, nameof(Theme), "UI/General");
         }
         public static bool RoomCallUI
         {
@@ -354,7 +354,7 @@ namespace Skymu.Preferences
 
         private static readonly string FilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Skymu",
+            Universal.Name,
             "shared.xml"
         );
 
@@ -375,7 +375,7 @@ namespace Skymu.Preferences
                 catch { }
 
                 System.Windows.MessageBox.Show(
-                    "Skymu has discovered that your configuration file is corrupt or from an older version of the application. " +
+                    $"{Universal.Name.ToLowerInvariant()} has discovered that your configuration file is corrupt or from an older version of the application. " +
                     "It has been reset and your settings have been wiped.",
                     "Configuration file reset",
                     System.Windows.MessageBoxButton.OK,

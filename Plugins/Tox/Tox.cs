@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -20,8 +20,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using ToxOO;
 using Yggdrasil;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
+using Yggdrasil.Bottles;
 using Yggdrasil.Tools.Windows;
 using static Tox.Helper;
 using static ToxCore;
@@ -32,12 +33,12 @@ namespace Tox
     {
         #region Variables
 
-        public event EventHandler<PluginMessageEventArgs> OnError;
-        public event EventHandler<PluginMessageEventArgs> OnWarning;
-        public event EventHandler<PluginYesNoEventArgs> ShowYesNo;
-        public event EventHandler<MessageEventArgs> MessageEvent;
-        public event EventHandler<CallEventArgs> OnIncomingCall;
-        public event EventHandler<CallEventArgs> OnCallStateChanged;
+        public event EventHandler<DialogBottle> DialogTube;
+        public event EventHandler<MessageBottle> MessageTube;
+        public event EventHandler<ListBottle> ListTube;
+
+        public event EventHandler<CallBottle> IncomingCallTube;
+        public event EventHandler<CallBottle> CallStateChangedTube;
         public string Name => "Tox";
         public string InternalName => "tox";
         public bool SupportsServers => false;
@@ -52,19 +53,11 @@ namespace Tox
             new ExtraConfiguration("Get self Tox ID", () =>
             {
                 var stid = tox.address;
-                OnWarning?.Invoke(this, new PluginMessageEventArgs($"Your Tox ID is: {stid}", stid));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, $"Your Tox ID is: {stid}", stid));
             })
         };
         public int TypingTimeout => 5000;
         public int TypingRepeat => 5000;
-
-        public User MyInformation { get; private set; }
-        public ObservableCollection<DirectMessage> ContactsList { get; private set; }
-            = new ObservableCollection<DirectMessage>();
-        public ObservableCollection<Conversation> RecentsList { get; private set; }
-            = new ObservableCollection<Conversation>();
-        public ObservableCollection<Server> ServerList { get; private set; }
-            = new ObservableCollection<Server>();
         public ObservableCollection<User> TypingUsersList { get; private set; }
             = new ObservableCollection<User>();
 
@@ -79,7 +72,9 @@ namespace Tox
         Thread avThread;
         Timer avTimer;
         readonly Callbacks cbs = new Callbacks();
-        internal User currentUser;
+        internal Dictionary<UInt32, Group> conferences
+            = new Dictionary<uint, Group>();
+        internal User _currentUser;
         internal Dictionary<UInt32, User> friends
             = new Dictionary<uint, User>();
         internal Dictionary<UInt32, Message> messages
@@ -88,6 +83,8 @@ namespace Tox
             = new Dictionary<uint, List<(Tox_Message_Type type, string text)>>();
         internal Dictionary<UInt32, List<(Tox_Message_Type type, string text)>> pendingSendFriend
             = new Dictionary<uint, List<(Tox_Message_Type type, string text)>>();
+        internal List<UInt32> pfpSent
+            = new List<UInt32>();
         internal string profile;
         internal FileStream profilelock;
         internal string savepass;
@@ -148,11 +145,13 @@ namespace Tox
             avACall = new CallStruct();
             avFinished = new TaskCompletionSource<bool>();
             avWaiter = new TaskCompletionSource<bool>();
-            currentUser = null;
+            _currentUser = null;
+            conferences = new Dictionary<UInt32, Group>();
             friends = new Dictionary<UInt32, User>();
             messages = new Dictionary<UInt32, Message>();
             pendingSendConference = new Dictionary<UInt32, List<(Tox_Message_Type type, string text)>>();
             pendingSendFriend = new Dictionary<UInt32, List<(Tox_Message_Type type, string text)>>();
+            pfpSent = new List<UInt32>();
             profile = null;
             savepass = null;
             transfers = new Dictionary<UInt32, byte[]>();
@@ -167,19 +166,20 @@ namespace Tox
 
         #region Helper
 
-        internal void RaiseMessageEvent(MessageEventArgs args) => MessageEvent?.Invoke(this, args);
+        internal void RaiseMessageEvent(MessageBottle args) => MessageTube?.Invoke(this, args);
         // UiContextPost
         internal void UCP(SendOrPostCallback d) => uiContext?.Post(d, null);
         // ERRor
-        internal void ERR(string err) { Debug.WriteLine("Tox: ERROR: " + err); OnError?.Invoke(this, new PluginMessageEventArgs(err, err)); }
+        internal void ERR(string err) { Debug.WriteLine("[TOX] ERROR: " + err); DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, err, err)); }
         // onCALLincoming
-        internal void CALL(CallEventArgs cea) => OnIncomingCall?.Invoke(this, cea);
+        internal void CALL(CallBottle cea) => IncomingCallTube?.Invoke(this, cea);
         // CallStateChanged
-        internal void CSC(CallEventArgs cea) => OnCallStateChanged?.Invoke(this, cea);
+        internal void CSC(CallBottle cea) => CallStateChangedTube?.Invoke(this, cea);
+        internal void LIST(ListBottle cea) => ListTube?.Invoke(this, cea);
         // SAVE. Any other questions?
         internal void SAVE() => Save(tox, profile, this);
         // ShowYesNo
-        internal void SYN(PluginYesNoEventArgs e) => ShowYesNo?.Invoke(this, e);
+        internal void SYN(DialogBottle e) => DialogTube?.Invoke(this, e);
 
         // https://stackoverflow.com/a/3202085
         static bool IsFileLocked(IOException exception)
@@ -199,7 +199,7 @@ namespace Tox
                 if (!File.Exists(Path.Combine(toxDir, profile + ".tox")))
                 {
                     TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
-                    ShowYesNo?.Invoke(this, new PluginYesNoEventArgs(
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Question,
                         "Are you sure that you want to create an encrypted profile? Since the password is not stored, avoid this option unless you want the security.",
                         (yes) => tcs.TrySetResult(yes)));
                     bool choice = await tcs.Task;
@@ -227,7 +227,7 @@ namespace Tox
         {
             // savepass is filled = encrypted save = saving the pass goes against the point of encrypting it
             if (string.IsNullOrEmpty(savepass))
-                return new SavedCredential(currentUser, profile, AuthenticationMethod.Token, InternalName);
+                return new SavedCredential(_currentUser, profile, AuthenticationMethod.Token, InternalName);
             return null;
         }
 
@@ -253,7 +253,7 @@ namespace Tox
 
             Debug.WriteLine($"Tox: Running on {ToxOO.Version.str}");
             if (!ToxOO.Version.Compatible(0, 2, 22))
-                OnWarning?.Invoke(this, new PluginMessageEventArgs("Your c-toxcore version is NOT compatible with Skymu. An unexpected crash may happen. We do not offer assistance with this."));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Your c-toxcore version is NOT compatible with Skymu. An unexpected crash may happen. We do not offer assistance with this."));
             var opt = new Options
             {
                 logCallback = cbs.OnLogPtr
@@ -363,7 +363,7 @@ namespace Tox
 
                 if (!opt.setSavedata(data))
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs("Something went wrong setting the savedata."));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Something went wrong setting the savedata."));
                     profilelock.Dispose();
                     File.Delete(lockpath);
                     return LoginResult.Failure;
@@ -434,14 +434,14 @@ namespace Tox
             var status = tox.statusMessage;
 
             var avatarPath = Path.Combine(AvatarDir, pubkey + ".png");
-            currentUser = new User(uname, profile, pubkey, status, PresenceStatus.Offline, File.Exists(avatarPath) ? File.ReadAllBytes(avatarPath) : null);
+            _currentUser = new User(uname, profile, pubkey, status, PresenceStatus.Offline, File.Exists(avatarPath) ? File.ReadAllBytes(avatarPath) : null);
 
             var tid = tox.address;
             Debug.WriteLine("Tox: Tox ID: " + tid);
             if (newprofile)
-                OnWarning?.Invoke(this, new PluginMessageEventArgs("No existing profile found, starting with a new one. Your Tox ID: " + tid));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "No existing profile found, starting with a new one. Your Tox ID: " + tid));
             // The username that appears on the statistics. It should be the Tox ID.
-            currentUser.PublicUsername = tid;
+            _currentUser.PublicUsername = tid;
 
             user_data = GCHandle.ToIntPtr(GCHandle.Alloc(this));
             cbs.Init(tox, user_data, av);
@@ -450,12 +450,9 @@ namespace Tox
 
             // Surely this does something, right? The doc I think tells you to use a dedotaded thread
             avThread = new Thread(_ =>
-            {
-                avTimer = new Timer(AVUpdate, null, 0, 1);
-            });
+                avTimer = new Timer(AVUpdate, null, 0, 1)
+            );
             avThread.Start();
-
-            FriendListRefresh(this);
 
             return LoginResult.Success;
         }
@@ -473,16 +470,103 @@ namespace Tox
 
         #region Populate
 
-        public async Task<bool> PopulateUserInformation()
+        public Task<User> GetUserInfo()
         {
             uiContext = SynchronizationContext.Current;
-            MyInformation = currentUser;
-            return true;
+            return Task.FromResult(_currentUser);
         }
 
-        public async Task<bool> PopulateContactsList() => FriendListRefresh(this, false);
+        public Task<List<DirectMessage>> FetchContacts()
+        {
+            uiContext = SynchronizationContext.Current;
+            var users = new Dictionary<UInt32, User>();
 
-        public async Task<bool> PopulateRecentsList() => FriendListRefresh(this, false);
+            foreach (var f in tox.friendArray)
+            {
+                if (!friends.ContainsKey(f.id))
+                    friends.Add(f.id, new User(
+                        f.name,
+                        BATS(f.publicKey),
+                        BATS(f.publicKey),
+                        f.statusMessage,
+                        PresenceStatus.Offline,
+                        GrabAvatar(BATS(f.publicKey))
+                        ));
+                users.Add(f.id, friends[f.id]);
+            }
+
+            var conts = new List<DirectMessage>();
+            foreach (var user in users)
+                conts.Add(new DirectMessage(user.Value, 0, user.Value.Identifier));
+
+            return Task.FromResult(conts);
+        }
+
+        public Task<List<Conversation>> FetchConversations()
+        {
+            uiContext = SynchronizationContext.Current;
+
+            foreach (var f in tox.friendArray)
+                friends.Add(f.id, new User(
+                    f.name,
+                    BATS(f.publicKey),
+                    BATS(f.publicKey),
+                    f.statusMessage,
+                    PresenceStatus.Offline,
+                    GrabAvatar(BATS(f.publicKey))
+                    ));
+            var conferences = new Dictionary<UInt32, Group>();
+            foreach (var c in tox.conferenceArray)
+            {
+                var peers = new User[c.peerCount + c.offlinePeerCount];
+                int i = 0;
+                foreach (var p in c.peers)
+                {
+                    var pkey = BATS(p.publicKey);
+                    foreach (var u in friends.Values)
+                    {
+                        if (u.PublicUsername == pkey)
+                        {
+                            peers[i++] = u;
+                            goto next;
+                        }
+                    }
+                    peers[i++] = new User(p.name, pkey, pkey, null, PresenceStatus.Online);
+                next:;
+                }
+                foreach (var p in c.offlinePeers)
+                {
+                    var pkey = BATS(p.publicKey);
+                    foreach (var u in friends.Values)
+                    {
+                        if (u.PublicUsername == pkey)
+                        {
+                            peers[i++] = u;
+                            goto next2;
+                        }
+                    }
+                    peers[i++] = new User(p.name, pkey, pkey, null, PresenceStatus.Offline);
+                next2:;
+                }
+                conferences.Add(c.id, new Group(
+                    c.title,
+                    BATS(c.cid),
+                    0,
+                    peers
+                ));
+            }
+
+            var convs = new List<Conversation>();
+            foreach (var friend in friends)
+                convs.Add(new DirectMessage(friend.Value, 0, friend.Value.Identifier));
+            foreach (var conference in conferences)
+                convs.Add(conference.Value);
+
+            return Task.FromResult(convs);
+        }
+
+        public Task<List<Server>> FetchServers() => Task.FromResult(new List<Server>());
+
 
         #endregion
 
@@ -509,6 +593,7 @@ namespace Tox
                             else
                                 pendingSendConference[c.id] = new List<(Tox_Message_Type type, string text)>() { (type, text) };
                         }
+                        SAVE();
                         return true;
                     }
                 } catch { }
@@ -526,10 +611,11 @@ namespace Tox
                 }
                 Message message;
                 if (type == Tox_Message_Type.ACTION)
-                    message = new ActionMessage(mid + "_" + GUID(), currentUser, new DateTime(), text);
+                    message = new ActionMessage(mid + "_" + GUID(), _currentUser, new DateTime(), text);
                 else
-                    message = new Message(mid + "_" + GUID(), currentUser, new DateTime(), text);
+                    message = new Message(mid + "_" + GUID(), _currentUser, new DateTime(), text);
                 messages.Add((UInt32)mid, message);
+                SAVE();
                 return true;
             }
             catch (Exception ex)
@@ -545,7 +631,7 @@ namespace Tox
             string newText
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message editing is not implemented."));
+            DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Message editing is not implemented."));
             return Task.FromResult(false);
         }
 
@@ -554,11 +640,11 @@ namespace Tox
             string messageId
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message deletion is not implemented."));
+            DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Message deletion is not implemented."));
             return Task.FromResult(false);
         }
 
-        public async Task<ConversationItem[]> FetchMessages(Conversation conversation, Fetch fetch_type, int message_count, string identifier)
+        public async Task<List<ConversationItem>> FetchMessages(Conversation conversation, Fetch fetch_type, int message_count, string identifier)
         {
             activecid = conversation.Identifier;
             TypingUsersList.Clear();
@@ -568,13 +654,14 @@ namespace Tox
                 if (f != null && f.typing)
                     TypingUsersList.Add(friends[f.id]);
             } catch (ArgumentException) { }
-            return new ConversationItem[0];
+            return new List<ConversationItem>();
         }
 
         public async Task<bool> SetConnectionStatus(PresenceStatus status)
         {
             if (tox.connectionStatus == Tox_Connection.NONE)
             {
+                // TODO: FInd a better way to handle this.
                 ERR("You need to wait until you're no longer offline to do that.");
                 return false;
             }
@@ -595,13 +682,15 @@ namespace Tox
             };
 
             tox.status = tstatus;
-            currentUser.ConnectionStatus = status;
+            _currentUser.ConnectionStatus = status;
+            SAVE();
             return true;
         }
 
-        public async Task<bool> SetTextStatus(string status)
+        public async Task<bool> SetMood(string status)
         {
             tox.statusMessage = status;
+            SAVE();
             return true;
         }
 
@@ -630,11 +719,12 @@ namespace Tox
             if (metadata is User user)
             {
                 var fid = tox.FriendAdd(user.Identifier, message);
-                var f = new User(user.DisplayName, user.DisplayName, user.DisplayName);
+                var pk = user.DisplayName.Substring(0, (int)Size.publicKey * 2);
+                var f = new User(pk, pk, pk, null, PresenceStatus.Offline, GrabAvatar(pk));
                 friends[fid] = f;
                 var dm = new DirectMessage(f, 0, f.Identifier);
-                ContactsList.Add(dm);
-                RecentsList.Add(dm);
+                ListTube?.Invoke(this, new ListItemUpdatedBottle(ListType.Contacts, dm));
+                ListTube?.Invoke(this, new ListItemUpdatedBottle(ListType.Conversations, dm));
             }
             else
             {
@@ -643,9 +733,12 @@ namespace Tox
                 var group = metadata as Group;
                 var idt = FromHex(group.Identifier, (int)ToxOO.Size.groupId*2);
 
-                tox_group_join(tox.ptr, idt, currentUser.DisplayName, (UIntPtr)currentUser.DisplayName.Length, null, (UIntPtr)0, out var err);
+                tox_group_join(tox.ptr, idt, _currentUser.DisplayName, (UIntPtr)_currentUser.DisplayName.Length, null, (UIntPtr)0, out var err);
                 Debug.WriteLine($"Tox group join: {PTSA(tox_err_group_join_to_string(err))}");
-                RecentsList.Add(new Group(group.Identifier, group.Identifier, 0, new User[0]));
+                var g = new Group(group.Identifier, group.Identifier, 0, new User[0]);
+                // yes, this will die without error handling
+                conferences.Add(tox_group_by_id(tox.ptr, idt, out _), g);
+                //ContactEvent?.Invoke(this, new ContactEventArgs(ContactEventType.Added, ContactListType.Conversations, g));
 #pragma warning restore CS0162 // Unreachable code detected
             }
             SAVE();
@@ -740,24 +833,23 @@ namespace Tox
             return await IStartCall(convo_id, false, false, true);
         }
 
-        public async Task<bool> DeclineCall(string convo_id)
+        public Task<bool> DeclineCall(string convo_id)
         {
             bool suc = toxav_call_control(av, UInt32.Parse(convo_id), Toxav_Call_Control.CANCEL, out var err);
             if (!suc)
                 ERR("An error occured when declining the call: " + err);
-            return suc;
+            return Task.FromResult(suc);
         }
 
-        public async Task<bool> SetMuted(ActiveCall call, bool muted) => false;
-        public async Task<bool> SetVideoEnabled(ActiveCall call, bool enabled) => false;
+        public Task<bool> SetMuted(ActiveCall call, bool muted) => Task.FromResult(false);
+        public Task<bool> SetVideoEnabled(ActiveCall call, bool enabled) => Task.FromResult(false);
 
         #endregion
-        
+
         #region Unimplemented stuff
 
-        public async Task<LoginResult> AuthenticateTwoFA(string code) => LoginResult.UnsupportedAuthType;
-        public async Task<string> GetQRCode() => string.Empty;
-        public async Task<bool> PopulateServerList() => false;
+        public Task<LoginResult> AuthenticateTwoFA(string code) => Task.FromResult(LoginResult.UnsupportedAuthType);
+        public Task<string> GetQRCode() => Task.FromResult(string.Empty);
         public ClickableConfiguration[] ClickableConfigurations
         {
             get { return new ClickableConfiguration[0]; }

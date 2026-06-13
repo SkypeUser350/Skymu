@@ -1,5 +1,5 @@
 /*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -19,7 +19,7 @@ using System.Windows.Media;
 
 namespace Skymu.Converters
 {
-    // decides chat bubble color based on who message is from (for SeanKype)
+    // decides chat bubble color based on who message is from (for Skype7)
     public class SenderToBubbleColorConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

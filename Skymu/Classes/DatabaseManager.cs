@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -34,7 +34,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
 
 namespace Skymu.Databases
@@ -62,7 +62,7 @@ namespace Skymu.Databases
         {
             string folderPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Skymu",
+                Universal.Name,
                 Universal.Plugin.InternalName,
                 SanitizeFolderName(user.Identifier)
             );
@@ -181,7 +181,7 @@ namespace Skymu.Databases
         {
             new System.Xml.Linq.XDocument(
                 new System.Xml.Linq.XElement(
-                    "SkymuDatabase",
+                    $"{Universal.Name}Database",
                     new System.Xml.Linq.XElement("DatabaseVersion", Version)
                 )
             ).Save(configPath);
@@ -1307,7 +1307,7 @@ namespace Skymu.Databases
                 }
             }
 
-            public bool Write(Conversation[] conversations) // JUMP contacts write
+            public bool Write(IEnumerable<DirectMessage> contacts) // JUMP contacts write
             {
                 using (SqliteConnection connection = _db.CreateConnection())
                 {
@@ -1369,7 +1369,7 @@ namespace Skymu.Databases
                             cmd.Parameters.Add("@isblocked", SqliteType.Integer);
                             cmd.Parameters.Add("@buddystatus", SqliteType.Integer);
 
-                            foreach (Conversation conversation in conversations)
+                            foreach (Conversation conversation in contacts)
                             {
                                 if (!(conversation is DirectMessage dm))
                                     continue;
@@ -1628,7 +1628,7 @@ namespace Skymu.Databases
                 );
             }
 
-            public bool Write(Conversation[] conversations) // JUMP conversation write
+            public bool Write(IEnumerable<Conversation> conversations) // JUMP conversation write
             {
                 using (SqliteConnection connection = _db.CreateConnection())
                 {
@@ -1738,7 +1738,7 @@ namespace Skymu.Databases
                 _db = db;
             }
 
-            public bool Write(Conversation[] conversations) // JUMP participants write
+            public bool Write(IEnumerable<Conversation> conversations) // JUMP participants write
             {
                 using (SqliteConnection connection = _db.CreateConnection())
                 {
@@ -1828,7 +1828,7 @@ namespace Skymu.Databases
             }
 
             private void WriteImageAttachments(
-                ConversationItem[] items,
+                IEnumerable<ConversationItem> items,
                 Conversation conversation,
                 long conversationIncrementalId,
                 SqliteConnection connection,
@@ -1992,12 +1992,12 @@ namespace Skymu.Databases
                 return result.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray());
             }
 
-            public ConversationItem[] Read(Conversation conversation, int limit = 0)
+            public List<ConversationItem> Read(Conversation conversation, int limit = 0)
             {
                 return Read(conversation, limit, beforeTimestampMs: null);
             }
 
-            public ConversationItem[] Read( // JUMP messages read
+            public List<ConversationItem> Read( // JUMP messages read
                 Conversation conversation,
                 int limit,
                 long? beforeTimestampMs
@@ -2017,7 +2017,7 @@ namespace Skymu.Databases
                             (object)ConvertIdentifier(conversation.Identifier) ?? DBNull.Value;
                         object result = idCmd.ExecuteScalar();
                         if (result == null || result == DBNull.Value)
-                            return items.ToArray();
+                            return items;
                         convoId = Convert.ToInt64(result);
                     }
 
@@ -2134,7 +2134,7 @@ namespace Skymu.Databases
                     }
                 }
 
-                return items.ToArray();
+                return items;
             }
 
             private ConversationItem ReadRow( // JUMP messages read row
@@ -2196,7 +2196,7 @@ namespace Skymu.Databases
             }
 
             public bool Write( // JUMP messages write
-                ConversationItem[] items,
+                IEnumerable<ConversationItem> items,
                 Conversation conversation,
                 SqliteConnection existingConnection = null
             )
@@ -2304,12 +2304,12 @@ namespace Skymu.Databases
                                     cmd.Parameters["@chatname"].Value = DBNull.Value;
                                     cmd.Parameters["@timestamp"].Value = tsSeconds;
                                     cmd.Parameters["@author"].Value =
-                                        (object)ConvertIdentifier(message.Sender?.Identifier)
+                                        (object)ConvertIdentifier(message.Author?.Identifier)
                                         ?? DBNull.Value;
                                     cmd.Parameters["@from_username"].Value =
-                                        (object)message.Sender?.Username ?? DBNull.Value;
+                                        (object)message.Author?.Username ?? DBNull.Value;
                                     cmd.Parameters["@from_dispname"].Value =
-                                        (object)message.Sender?.DisplayName ?? DBNull.Value;
+                                        (object)message.Author?.DisplayName ?? DBNull.Value;
                                     cmd.Parameters["@chatmsg_type"].Value = hasFile ? 7 : 3;
                                     cmd.Parameters["@body_xml"].Value =
                                         (object)message.Text ?? DBNull.Value;
@@ -2405,7 +2405,7 @@ namespace Skymu.Databases
                             connection,
                             transaction
                         );
-                        if (ownsTransaction && items.Length > 0)
+                        if (ownsTransaction && items.Count() > 0)
                         {
                             using (SqliteCommand updateCmd = connection.CreateCommand())
                             {

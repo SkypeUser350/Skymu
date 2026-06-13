@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -15,6 +15,7 @@ using Skymu.Preferences;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Yggdrasil.Bottles;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -22,7 +23,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Threading;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
 
 namespace Skymu.Forms
@@ -78,21 +79,21 @@ namespace Skymu.Forms
             PartnerDisplayName.Text = partner.DisplayName;
             isMuted = true;
 
-            string prefix = $"pack://application:,,,/Skymu;component/{Universal.Interface}/Assets/Universal/"; // TODO make less repetitive
-            rectangle = ImageHelper.Generate(prefix + "Call Screen/rectangle.png");
-            pill = ImageHelper.Generate(prefix + "Call Screen/pill.png");
-            logo_small = ImageHelper.Generate(prefix + "Branding/logo-call-small.png");
-            logo_big = ImageHelper.Generate(prefix + "Branding/logo-call-big.png");
-            unmuted = ImageHelper.Generate(prefix + "Call Screen/btn_mic.png");
-            muted = ImageHelper.Generate(prefix + "Call Screen/btn_mic_off.png");
-            chat_active = ImageHelper.Generate(prefix + "Call Screen/btn_chat_active.png");
-            chat_inactive = ImageHelper.Generate(prefix + "Call Screen/btn_chat_inactive.png");
-            sidebar_expand = ImageHelper.Generate(prefix + "Call Screen/btn_sidebar_expand.png");
-            sidebar_collapse = ImageHelper.Generate(
+            string prefix = "Universal/"; // TODO make less repetitive
+            rectangle = ImageHelper.FreezeLoad(prefix + "Call Screen/rectangle.png");
+            pill = ImageHelper.FreezeLoad(prefix + "Call Screen/pill.png");
+            logo_small = ImageHelper.FreezeLoad(prefix + "Branding/logo-call-small.png");
+            logo_big = ImageHelper.FreezeLoad(prefix + "Branding/logo-call-big.png");
+            unmuted = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_mic.png");
+            muted = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_mic_off.png");
+            chat_active = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_chat_active.png");
+            chat_inactive = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_chat_inactive.png");
+            sidebar_expand = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_sidebar_expand.png");
+            sidebar_collapse = ImageHelper.FreezeLoad(
                 prefix + "Call Screen/btn_sidebar_collapse.png"
             );
-            screen_contract = ImageHelper.Generate(prefix + "Call Screen/btn_screen_contract.png");
-            screen_expand = ImageHelper.Generate(prefix + "Call Screen/btn_screen_expand.png");
+            screen_contract = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_screen_contract.png");
+            screen_expand = ImageHelper.FreezeLoad(prefix + "Call Screen/btn_screen_expand.png");
 
 
             isPillMode = !(this.ActualWidth >= 1025.0);
@@ -115,7 +116,7 @@ namespace Skymu.Forms
 
         public async Task StartCall(Conversation conversation, bool is_video)
         {
-            Universal.CallPlugin.OnCallStateChanged += OnCallStateChanged;
+            Universal.CallPlugin.CallStateChangedTube += OnCallStateChanged;
             _call = new ActiveCall(
                 "INIT",
                 conversation.Identifier,
@@ -198,7 +199,7 @@ namespace Skymu.Forms
             }
         }
 
-        private void OnCallStateChanged(object sender, CallEventArgs e)
+        private void OnCallStateChanged(object sender, CallBottle e)
         {
             if (e.State == CallState.Ended)
             {
@@ -337,7 +338,7 @@ namespace Skymu.Forms
             _ringCts?.Cancel();
             SoundManager.StopPlayback("call-out");
             SoundManager.StopPlayback("call-init");
-            Universal.CallPlugin.OnCallStateChanged -= OnCallStateChanged;
+            Universal.CallPlugin.CallStateChangedTube -= OnCallStateChanged;
             _ = Universal.CallPlugin.EndCall(_call);
             _callTimer?.Stop();
             _callTimer = null;

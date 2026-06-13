@@ -18,6 +18,7 @@ using Microsoft.Data.Sqlite;
 using Yggdrasil;
 using Yggdrasil.Classes;
 using Yggdrasil.Enumerations;
+using Yggdrasil.EventArgs;
 
 namespace SkypeDBBrowser
 {
@@ -30,9 +31,7 @@ namespace SkypeDBBrowser
         private static readonly byte[] JpegMagic = new byte[] { 0xFF, 0xD8, 0xFF };
         private static readonly byte[] PngMagic = new byte[] { 0x89, 0x50, 0x4E, 0x47 }; // \x89PNG
 
-        public event EventHandler<PluginMessageEventArgs> OnError;
-        public event EventHandler<PluginMessageEventArgs> OnWarning;
-        public event EventHandler<PluginYesNoEventArgs> ShowYesNo;
+        public event EventHandler<DialogEventArgs> OnDialog;
         public event EventHandler<MessageEventArgs> MessageEvent;
 
         public string Name => "Skype database browser";
@@ -58,18 +57,7 @@ namespace SkypeDBBrowser
             }
         }
 
-        public User MyInformation { get; private set; }
-        public ObservableCollection<DirectMessage> ContactsList { get; private set; } =
-            new ObservableCollection<DirectMessage>();
-        public ObservableCollection<Conversation> RecentsList { get; private set; } =
-            new ObservableCollection<Conversation>();
-
-        public ObservableCollection<Server> ServerList { get; private set; }
-
-        public Task<bool> PopulateServerList()
-        {
-            return Task.FromResult(false);
-        }
+        public Task<List<Server>> FetchServers() => Task.FromResult(new List<Server>());
 
         public ObservableCollection<User> TypingUsersList { get; private set; } =
             new ObservableCollection<User>();
@@ -86,15 +74,15 @@ namespace SkypeDBBrowser
 
             if (string.IsNullOrWhiteSpace(username))
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs("Database path cannot be empty."));
+                OnDialog?.Invoke(this, new DialogEventArgs(DialogType.Error, "Database path cannot be empty."));
                 return LoginResult.Failure;
             }
 
             if (!File.Exists(username))
             {
-                OnError?.Invoke(
+                OnDialog?.Invoke(
                     this,
-                    new PluginMessageEventArgs($"Database file not found: {username}")
+                    new DialogEventArgs(DialogType.Error, $"Database file not found: {username}")
                 );
                 return LoginResult.Failure;
             }
@@ -151,7 +139,7 @@ namespace SkypeDBBrowser
             return Task.FromResult(false);
         }
 
-        public Task<bool> SetTextStatus(string status)
+        public Task<bool> SetMood(string status)
         {
             return Task.FromResult(false);
         }
@@ -164,7 +152,7 @@ namespace SkypeDBBrowser
             bool action
         ) // nice try
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Databases are read-only."));
+            OnDialog?.Invoke(this, new DialogEventArgs(DialogType.Warning, "Databases are read-only."));
             return Task.FromResult(false);
         }
 
@@ -174,7 +162,7 @@ namespace SkypeDBBrowser
             string newText
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message editing is not implemented."));
+            OnDialog?.Invoke(this, new DialogEventArgs(DialogType.Warning, "Message editing is not implemented."));
             return Task.FromResult(false);
         }
 
@@ -183,11 +171,11 @@ namespace SkypeDBBrowser
             string messageId
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message deletion is not implemented."));
+            OnDialog?.Invoke(this, new DialogEventArgs(DialogType.Warning, "Message deletion is not implemented."));
             return Task.FromResult(false);
         }
 
-        public async Task<ConversationItem[]> FetchMessages(
+        public async Task<List<ConversationItem>> FetchMessages(
             Conversation conversation,
             Fetch fetch_type,
             int message_count,
@@ -312,22 +300,21 @@ namespace SkypeDBBrowser
                     }
                 }
 
-                return messageList.ToArray();
+                return messageList;
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(
+                OnDialog?.Invoke(
                     this,
-                    new PluginMessageEventArgs($"Failed to load conversation: {ex.Message}")
+                    new DialogEventArgs(DialogType.Error, $"Failed to load conversation: {ex.Message}")
                 );
-                return new ConversationItem[0];
+                return new List<ConversationItem>();
             }
         }
 
-        public Task<bool> PopulateUserInformation()
+        public Task<User> GetUserInfo()
         {
-            MyInformation = _currentUser;
-            return Task.FromResult(true);
+            return Task.FromResult(_currentUser);
         }
         public int TypingTimeout => 5000;
         public Task<bool> SetTyping(string idenfitier, bool typing)
@@ -336,13 +323,11 @@ namespace SkypeDBBrowser
             return Task.FromResult(false);
         }
 
-
-        public async Task<bool> PopulateContactsList()
+        public async Task<List<DirectMessage>> FetchContacts()
         {
+            List<DirectMessage> contacts = new List<DirectMessage>();
             try
             {
-                ContactsList.Clear();
-
                 using (
                     var connection = new SqliteConnection(
                         $"Data Source={_databasePath};Mode=ReadOnly"
@@ -388,7 +373,7 @@ namespace SkypeDBBrowser
 
                                 var status = ConvertSkypeAvailabilityToStatus(availability);
 
-                                ContactsList.Add(
+                                contacts.Add(
                                     new DirectMessage(
                                         new User(
                                             displayName,
@@ -407,27 +392,27 @@ namespace SkypeDBBrowser
                     }
                 }
 
-                return true;
+                return contacts;
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(
+                OnDialog?.Invoke(
                     this,
-                    new PluginMessageEventArgs($"Failed to load contacts: {ex.Message}")
+                    new DialogEventArgs(DialogType.Error, $"Failed to load contacts: {ex.Message}")
                 );
-                return false;
+                return new List<DirectMessage>();
             }
         }
 
-        public async Task<bool> PopulateRecentsList()
+        public async Task<List<Conversation>> FetchConversations()
         {
+            List<Conversation> conversations = new List<Conversation>();
             try
             {
-                RecentsList.Clear();
 
                 // build a lookup of contact data (avatar + mood) keyed by skypename so we
                 // can enrich individual conversations that belong to a known contact
-                var contactInfo = new System.Collections.Generic.Dictionary<
+                var contactInfo = new Dictionary<
                     string,
                     (string Mood, byte[] Avatar, PresenceStatus Status)
                 >(StringComparer.OrdinalIgnoreCase);
@@ -521,7 +506,7 @@ namespace SkypeDBBrowser
                                         contactInfo
                                     );
 
-                                    RecentsList.Add(
+                                    conversations.Add(
                                         new Group(
                                             displayName,
                                             identity,
@@ -537,7 +522,7 @@ namespace SkypeDBBrowser
                                     // individual conversation — enrich with contact data if available
                                     string identifier = dialogPartner ?? identity;
                                     contactInfo.TryGetValue(identifier, out var info);
-                                    RecentsList.Add(
+                                    conversations.Add(
                                         new DirectMessage(
                                             new User(
                                                 displayName,
@@ -560,15 +545,15 @@ namespace SkypeDBBrowser
                     }
                 }
 
-                return true;
+                return conversations;
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(
+                OnDialog?.Invoke(
                     this,
-                    new PluginMessageEventArgs($"Failed to load recents: {ex.Message}")
+                    new DialogEventArgs(DialogType.Error, $"Failed to load conversations: {ex.Message}")
                 );
-                return false;
+                return new List<Conversation>();
             }
         }
 
@@ -597,8 +582,6 @@ namespace SkypeDBBrowser
         {
             _databasePath = null;
             _currentUser = null;
-            ContactsList?.Clear();
-            RecentsList?.Clear();
             TypingUsersList?.Clear();
         }
 

@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -33,7 +33,7 @@ namespace Skymu
                 if (!ldict.TryGetValue(key, out var value))
                     return key;
 
-                return value.Replace("Skype", Settings.BrandingName).Replace("skype:", "skymu:");
+                return value.Replace("Skype", Settings.BrandingName).Replace("skype:", $"{Universal.Name.ToLowerInvariant()}:");
             }
         }
 

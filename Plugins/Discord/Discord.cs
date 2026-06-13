@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -26,7 +26,8 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Yggdrasil;
-using Yggdrasil.Classes;
+using Yggdrasil.Bottles;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
 
 namespace Discord
@@ -35,16 +36,15 @@ namespace Discord
     {
         #region Variables and plugin metadata
 
-        public event EventHandler<CallEventArgs> OnIncomingCall;
-        public event EventHandler<CallEventArgs> OnCallStateChanged;
+        public event EventHandler<CallBottle> IncomingCallTube;
+        public event EventHandler<CallBottle> CallStateChangedTube;
         private CallSocket _callSocket = null;
 
         // Plugin details
         public bool SupportsVideoCalls => false; // not yet
-        public event EventHandler<PluginMessageEventArgs> OnError;
-        public event EventHandler<PluginMessageEventArgs> OnWarning;
-        public event EventHandler<PluginYesNoEventArgs> ShowYesNo;
-        public event EventHandler<MessageEventArgs> MessageEvent;
+        public event EventHandler<DialogBottle> DialogTube;
+        public event EventHandler<MessageBottle> MessageTube;
+        public event EventHandler<ListBottle> ListTube;
         public string Name { get { return "Discord"; } }
         public string InternalName { get { return "discord"; } }
         public bool SupportsServers { get { return true; } }
@@ -85,9 +85,6 @@ namespace Discord
         private const string USERS_ME = "users/@me";
 
         // Observable collections used in the Skymu UI
-        public ObservableCollection<DirectMessage> ContactsList { get; private set; } = new ObservableCollection<DirectMessage>();
-        public ObservableCollection<Conversation> RecentsList { get; private set; } = new ObservableCollection<Conversation>();
-        public ObservableCollection<Server> ServerList { get; private set; } = new ObservableCollection<Server>();
         public ObservableCollection<User> TypingUsersList { get; private set; } = new ObservableCollection<User>();
 
         public readonly Dictionary<string, HashSet<string>> _typingUsersPerChannel = new Dictionary<string, HashSet<string>>();
@@ -106,8 +103,6 @@ namespace Discord
                 };
             }
         }
-
-        public User MyInformation { get; private set; }
 
         private enum ListType
         {
@@ -177,7 +172,7 @@ namespace Discord
             string qr = await tcs.Task;
             if (qr == "discord-close")
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs("Discord cancelled this QR login session. This can happen because:\n\n- You might be taking too long to scan the code" +
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Discord cancelled this QR login session. This can happen because:\n\n- You might be taking too long to scan the code" +
                     "\n- Discord updated something on their side and the plugin doesn't work anymore\n- You tried to scan the code using an old version of the Discord app or something like Aliucord"));
                 return null;
             }
@@ -209,25 +204,25 @@ namespace Discord
             {
                 if (userCheckTkn.Contains("401: Unauthorized"))
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs("Your token has been rejected, possibly due to a display name, username, or password change, or simply because it is invalid.\n\nPlease retrieve a new token."));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Your token has been rejected, possibly due to a display name, username, or password change, or simply because it is invalid.\n\nPlease retrieve a new token."));
                 }
                 else if (userCheckTkn.Contains("[API/ParseError]"))
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs("The provided token has an invalid format. Please ensure that you are entering it correctly."));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "The provided token has an invalid format. Please ensure that you are entering it correctly."));
                 }
                 else if (userCheckTkn.Contains("[API/RequestError]"))
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs("Could not communicate with Discord's servers. Check your internet connection and proxy settings.\n\n" + userCheckTkn.Replace("[API/RequestError]", string.Empty)));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Could not communicate with Discord's servers. Check your internet connection and proxy settings.\n\n" + userCheckTkn.Replace("[API/RequestError]", string.Empty)));
                 }
                 else
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs("An unknown error occurred during the login process. Please try again.\n\n" + userCheckTkn));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "An unknown error occurred during the login process. Please try again.\n\n" + userCheckTkn));
                 }
                 return LoginResult.Failure;
             }
         }
 
-        public async Task<bool> PopulateUserInformation()
+        public async Task<User> GetUserInfo()
         {
             try
             {
@@ -238,14 +233,14 @@ namespace Discord
                     if (string.IsNullOrEmpty(channelId)) return; // no channel ID - private, or some server side error? just in case, return
                     if (((JsonArray)data["ringing"])?.Any(id => id?.GetValue<string>() == _currentUser?.Identifier) != true) return; // the current user is not being rung, return
                     string callerId = data["ongoing_rings"]?[_currentUser?.Identifier]?.GetValue<string>(); // who's ringing the current user?
-                    OnIncomingCall?.Invoke(this, new CallEventArgs(channelId, CallState.Ringing, UserStore.Get(callerId)));
+                    IncomingCallTube?.Invoke(this, new CallBottle(channelId, CallState.Ringing, UserStore.Get(callerId)));
                 });
                 _uiContext = SynchronizationContext.Current;
 
 
                 proto = new ProtoSettings(DiscordToken);
             }
-            catch (Exception ex) { OnError?.Invoke(this, new PluginMessageEventArgs("Unexpected error while attempting to initialize WebSocket.\n\n" + ex.ToString())); }
+            catch (Exception ex) { DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Unexpected error while attempting to initialize WebSocket.\n\n" + ex.ToString())); }
             JsonObject parsedDetails = null;
             try
             {
@@ -262,30 +257,31 @@ namespace Discord
 
                 if (await Task.WhenAny(readyTask, delayTask) == delayTask)
                 {
-                    OnWarning?.Invoke(this, new PluginMessageEventArgs(
+                    DialogTube?.Invoke(this, new DialogBottle(
+                        DialogType.Warning,
                         "The WebSocket is taking an unusually long time to initialize. " +
                         "This could be due to slow internet speeds or Discord throttling the connection."));
                 }
 
                 if (!await readyTask)
                 {
-                    OnError?.Invoke(this, new PluginMessageEventArgs(
+                    DialogTube?.Invoke(this, new DialogBottle(
+                        DialogType.Error,
                         "The WebSocket failed to initialize. This could be due to network errors, an outdated network stack, or Discord forcibly closing the connection."));
-                    return false;
+                    return null;
                 }
 
                 _currentUser.ConnectionStatus = UserStore.Get("0")?.ConnectionStatus ?? PresenceStatus.Offline;
                 _currentUser.Status = UserStore.Get(_currentUser.Identifier)?.Status;
 
-                MyInformation = _currentUser;
-
-                return true;
+                return _currentUser;
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs(
+                DialogTube?.Invoke(this, new DialogBottle(
+                    DialogType.Error,
                     $"Parse error: {ex.Message}\nResponse from server:\n{parsedDetails?.ToJsonString() ?? "null"}"));
-                return false;
+                return null;
             }
         }
 
@@ -293,16 +289,124 @@ namespace Discord
 
         #region List population (contacts, servers, recents)
 
-        public Task<bool> PopulateContactsList() => PopulateListsBackend(ListType.Contacts);
-        public Task<bool> PopulateRecentsList() => PopulateListsBackend(ListType.Recents);
-        public Task<bool> PopulateServerList() => PopulateListsBackend(ListType.Servers);
+        public Task<List<DirectMessage>> FetchContacts() => FetchContactsOrConversations(ListType.Contacts)
+    .ContinueWith(t => t.Result.OfType<DirectMessage>().ToList());
 
-        private async Task<bool> PopulateListsBackend(ListType list_type)
+        public Task<List<Conversation>> FetchConversations() => FetchContactsOrConversations(ListType.Recents);
+
+        public async Task<List<Server>> FetchServers()
         {
+            var results = new List<Server>();
             try
             {
-                var dscChannels = HelperMethods.GetUserChannels(
-                    list_type == ListType.Recents);
+                var guilds = WebSocketManager.GetGuilds();
+                foreach (var guildNode in guilds.OfType<JsonObject>())
+                {
+                    int memberCount = 0;
+                    string guildId = guildNode["id"]?.GetValue<string>();
+                    string guildName = guildNode["name"]?.GetValue<string>();
+                    string iconHash = guildNode["icon"]?.GetValue<string>();
+                    int.TryParse(guildNode["member_count"]?.ToString(), out memberCount);
+
+                    if (string.IsNullOrWhiteSpace(guildId)) continue;
+
+                    byte[] guildAvatar = await HelperMethods.GetCachedAvatarAsync(guildId, iconHash, HelperMethods.DiscordChannelType.Server);
+
+                    var channelList = new List<ServerChannel>();
+                    var categoryMap = new Dictionary<string, string>();
+
+                    if (guildNode["channels"] is JsonArray channels)
+                    {
+                        foreach (var ch in channels.OfType<JsonObject>())
+                        {
+                            int typeValue = -1;
+                            if (!int.TryParse(ch["type"]?.ToString(), out typeValue))
+                                typeValue = -1;
+
+                            if (typeValue == 4)
+                            {
+                                string categoryId = ch["id"]?.GetValue<string>();
+                                string categoryName = ch["name"]?.GetValue<string>();
+                                if (!string.IsNullOrWhiteSpace(categoryId) && !string.IsNullOrWhiteSpace(categoryName))
+                                    categoryMap[categoryId] = categoryName;
+                            }
+                        }
+
+                        foreach (var ch in channels.OfType<JsonObject>())
+                        {
+                            string channelId = ch["id"]?.GetValue<string>();
+                            string channelName = ch["name"]?.GetValue<string>();
+                            if (string.IsNullOrWhiteSpace(channelId)) continue;
+
+                            int position = 0;
+                            int.TryParse(ch["position"]?.ToString(), out position);
+                            string parentId = ch["parent_id"]?.GetValue<string>();
+
+                            int typeValue = -1;
+                            if (!int.TryParse(ch["type"]?.ToString(), out typeValue))
+                                typeValue = -1;
+
+                            ChannelType channelType;
+                            switch (typeValue)
+                            {
+                                case 0:
+                                    channelType = ChannelType.Standard;
+
+                                    bool everyoneDeniesSend = false;
+                                    if (ch["permission_overwrites"] is JsonArray perms)
+                                    {
+                                        foreach (var perm in perms.OfType<JsonObject>())
+                                        {
+                                            string permId = perm["id"]?.GetValue<string>() ?? string.Empty;
+                                            if (permId != guildId) continue;
+
+                                            int deny = 0;
+                                            int.TryParse(perm["deny"]?.ToString(), out deny);
+
+                                            const int sendMessages = 0x400;
+                                            if ((deny & sendMessages) != 0)
+                                                everyoneDeniesSend = true;
+                                        }
+                                    }
+
+                                    if (everyoneDeniesSend)
+                                        channelType = ChannelType.ReadOnly;
+                                    break;
+                                case 2:
+                                    channelType = ChannelType.Voice;
+                                    break;
+                                case 4:
+                                    continue;
+                                case 5:
+                                    channelType = ChannelType.Announcement;
+                                    break;
+                                case 15:
+                                    channelType = ChannelType.Forum;
+                                    break;
+                                default:
+                                    channelType = ChannelType.NoAccess;
+                                    break;
+                            }
+                            channelList.Add(new ServerChannel(channelName, channelId, guildId, 0, channelType, parentId, position));
+                        }
+                    }
+                    results.Add(new Server(guildName, guildId, null, channelList.ToArray(), guildAvatar, categoryMap, memberCount));
+                }
+            }
+            catch (Exception ex)
+            {
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Failed to populate servers: {ex.Message}"));
+                return new List<Server>();
+            }
+            return results;
+        }
+
+        private async Task<List<Conversation>> FetchContactsOrConversations(ListType listType)
+        {
+            var results = new List<Conversation>();
+            try
+            {
+                var dscChannels = HelperMethods.GetUserChannels(listType == ListType.Recents);
 
                 foreach (var channel in dscChannels)
                 {
@@ -320,35 +424,29 @@ namespace Discord
                         string channelId = channel["id"]?.GetValue<string>();
 
                         if (!UserIdToChannelId.ContainsKey(userId))
-                        {
                             UserIdToChannelId.Add(userId, channelId);
-                        }
 
                         string displayName = recipient["global_name"]?.GetValue<string>();
                         string dscUserName = recipient["username"]?.GetValue<string>();
                         string avatarHash = recipient["avatar"]?.GetValue<string>();
 
-                        if (list_type == ListType.Recents)
-                        {
+                        if (listType == ListType.Recents)
                             _recentChannelMap[channelId] = userId;
-                        }
 
                         var profileData = await UserStore.GetOrCreateWithAvatar(userId, displayName ?? dscUserName, dscUserName, avatarHash);
 
                         DateTime lastMessageTime = GetTimestampFromSnowflake(channel["last_message_id"]?.GetValue<string>());
 
-                        if (list_type == ListType.Recents)
-                            RecentsList.Add(new DirectMessage(profileData, 0, channelId, lastMessageTime));
+                        if (listType == ListType.Recents)
+                            results.Add(new DirectMessage(profileData, 0, channelId, lastMessageTime));
                         else
-                            ContactsList.Add(new DirectMessage(profileData, 0, channelId));
+                            results.Add(new DirectMessage(profileData, 0, channelId));
                     }
-                    else if (type == GROUP_CHANNEL_TYPE)
+                    else if (type == GROUP_CHANNEL_TYPE && listType == ListType.Recents)
                     {
                         var recipients = channel["recipients"] as JsonArray;
-                        int recipientCount = recipients?.Count ?? 0;
 
                         User[] members = null;
-
                         if (recipients != null && recipients.Count > 0)
                         {
                             User[] temp = await Task.WhenAll(
@@ -359,10 +457,9 @@ namespace Discord
                                         r["global_name"]?.GetValue<string>() ?? r["username"]?.GetValue<string>() ?? "Unknown",
                                         r["username"]?.GetValue<string>() ?? "Unknown"
                                     ))
-                             );
+                            );
 
                             members = new User[temp.Length + 1];
-
                             members[0] = _currentUser;
                             Array.Copy(temp, 0, members, 1, temp.Length);
                         }
@@ -371,10 +468,7 @@ namespace Discord
                         string groupName = channel["name"]?.GetValue<string>();
                         string avatarHash = channel["icon"]?.GetValue<string>();
 
-                        if (list_type == ListType.Recents)
-                        {
-                            _recentChannelMap[channelId] = null;
-                        }
+                        _recentChannelMap[channelId] = null;
 
                         if (string.IsNullOrWhiteSpace(groupName))
                         {
@@ -382,144 +476,27 @@ namespace Discord
                             {
                                 var recipientNames = recipients?
                                     .OfType<JsonObject>()
-                                    .Select(r =>
-                                        r["global_name"]?.GetValue<string>() ??
-                                        r["username"]?.GetValue<string>())
+                                    .Select(r => r["global_name"]?.GetValue<string>() ?? r["username"]?.GetValue<string>())
                                     .Where(n => !string.IsNullOrWhiteSpace(n));
 
-                                groupName = recipientNames != null
-                                            ? string.Join(", ", recipientNames)
-                                            : "N/A";
+                                groupName = recipientNames != null ? string.Join(", ", recipientNames) : "N/A";
                             }
-                            catch { OnError?.Invoke(this, new PluginMessageEventArgs("Error constructing group name.")); }
+                            catch { DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, "Error constructing group name.")); }
                         }
 
                         byte[] avatarImage = await HelperMethods.GetCachedAvatarAsync(channelId, avatarHash, HelperMethods.DiscordChannelType.Group);
-
                         DateTime lastMessageTime = GetTimestampFromSnowflake(channel["last_message_id"]?.GetValue<string>());
-                        var profileData = new Group(groupName, channelId, 0, members, avatarImage, lastMessageTime);
 
-                        if (list_type == ListType.Recents)
-                            RecentsList.Add(profileData);
+                        results.Add(new Group(groupName, channelId, 0, members, avatarImage, lastMessageTime));
                     }
                 }
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs($"Error while populating lists: {ex.Message}"));
-                return false;
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Error while fetching list: {ex.Message}"));
+                return new List<Conversation>();
             }
-
-            // Populate all of the servers in the servers list
-            if (list_type == ListType.Servers)
-            {
-                try
-                {
-                    var guilds = WebSocketManager.GetGuilds();
-                    foreach (var guildNode in guilds.OfType<JsonObject>())
-                    {
-                        int memberCount = 0;
-                        string guildId = guildNode["id"]?.GetValue<string>();
-                        string guildName = guildNode["name"]?.GetValue<string>();
-                        string iconHash = guildNode["icon"]?.GetValue<string>();
-                        int.TryParse(guildNode["member_count"]?.ToString(), out memberCount);
-
-                        if (string.IsNullOrWhiteSpace(guildId)) continue;
-
-                        byte[] guildAvatar = await HelperMethods.GetCachedAvatarAsync(guildId, iconHash, HelperMethods.DiscordChannelType.Server);
-
-                        var channelList = new List<ServerChannel>();
-                        var categoryMap = new Dictionary<string, string>();
-
-                        if (guildNode["channels"] is JsonArray channels)
-                        {
-                            foreach (var ch in channels.OfType<JsonObject>())
-                            {
-                                int typeValue = -1;
-                                if (!int.TryParse(ch["type"]?.ToString(), out typeValue))
-                                    typeValue = -1;
-
-                                if (typeValue == 4)
-                                {
-                                    string categoryId = ch["id"]?.GetValue<string>();
-                                    string categoryName = ch["name"]?.GetValue<string>();
-                                    if (!string.IsNullOrWhiteSpace(categoryId) && !string.IsNullOrWhiteSpace(categoryName))
-                                    {
-                                        categoryMap[categoryId] = categoryName;
-                                    }
-                                }
-                            }
-
-                            foreach (var ch in channels.OfType<JsonObject>())
-                            {
-                                string channelId = ch["id"]?.GetValue<string>();
-                                string channelName = ch["name"]?.GetValue<string>();
-                                if (string.IsNullOrWhiteSpace(channelId)) continue;
-
-                                int position = 0;
-                                int.TryParse(ch["position"]?.ToString(), out position);
-                                string parentId = ch["parent_id"]?.GetValue<string>();
-
-                                int typeValue = -1;
-                                if (!int.TryParse(ch["type"]?.ToString(), out typeValue))
-                                    typeValue = -1;
-
-                                ChannelType channelType;
-
-                                switch (typeValue)
-                                {
-                                    case 0:
-                                        channelType = ChannelType.Standard;
-
-                                        bool everyoneDeniesSend = false;
-                                        if (ch["permission_overwrites"] is JsonArray perms)
-                                        {
-                                            foreach (var perm in perms.OfType<JsonObject>())
-                                            {
-                                                string permId = perm["id"]?.GetValue<string>() ?? string.Empty;
-                                                if (permId != guildId) continue;
-
-                                                int deny = 0;
-                                                int.TryParse(perm["deny"]?.ToString(), out deny);
-
-                                                const int sendMessages = 0x400;
-                                                if ((deny & sendMessages) != 0)
-                                                    everyoneDeniesSend = true;
-                                            }
-                                        }
-
-                                        if (everyoneDeniesSend)
-                                            channelType = ChannelType.ReadOnly;
-                                        break;
-                                    case 2:
-                                        channelType = ChannelType.Voice;
-                                        break;
-                                    case 4:
-                                        continue;
-                                    case 5:
-                                        channelType = ChannelType.Announcement;
-                                        break;
-                                    case 15:
-                                        channelType = ChannelType.Forum;
-                                        break;
-                                    default:
-                                        channelType = ChannelType.NoAccess;
-                                        break;
-                                }
-                                channelList.Add(new ServerChannel(channelName, channelId, guildId, 0, channelType, parentId, position));
-                            }
-                        }
-                        ServerList.Add(new Server(guildName, guildId, null, channelList.ToArray(), guildAvatar, categoryMap, memberCount));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    OnError?.Invoke(this, new PluginMessageEventArgs($"Failed to populate servers: {ex.Message}"));
-                    return false;
-                }
-            }
-
-            return true;
+            return results;
         }
 
         #endregion
@@ -528,7 +505,7 @@ namespace Discord
 
         private CancellationTokenSource _fetchCts; // omega: fix message overlap bug
 
-        public async Task<ConversationItem[]> FetchMessages(Conversation conversation, Fetch fetch_type, int message_count, string identifier)
+        public async Task<List<ConversationItem>> FetchMessages(Conversation conversation, Fetch fetch_type, int message_count, string identifier)
         {
             if (_fetchCts != null)
             {
@@ -543,7 +520,7 @@ namespace Discord
             List<ConversationItem> messageList = new List<ConversationItem>();
 
             if (!HelperMethods.TryToGetChannelId(conversation.Identifier, out var channelId) || fetch_type == Fetch.Oldest)
-                return new ConversationItem[0];
+                return messageList;
 
             _activeChannelId = channelId;
             string parameters = $"/channels/{channelId}/messages?limit={message_count}";
@@ -571,13 +548,13 @@ namespace Discord
                                 text = $"Discord says: {msg["message"].GetValue<string>()}\n\nError code {msg["code"].GetValue<string>()}";
                                 break;
                         }
-                        OnWarning?.Invoke(this, new PluginMessageEventArgs(text));
+                        DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, text));
                     }
                     else
                     {
-                        OnError?.Invoke(this, new PluginMessageEventArgs($"Unexpected response format: {encJson}"));
+                        DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Unexpected response format: {encJson}"));
                     }
-                    return new ConversationItem[0];
+                    return new List<ConversationItem>();
                 }
 
                 foreach (var node in messages.Reverse())
@@ -589,21 +566,21 @@ namespace Discord
                 }
 
                 if (fetch_type == Fetch.NewestAfterIdentifier && identifier != null)
-                    return messageList.Where(m => ulong.Parse(m.Identifier) > ulong.Parse(identifier)).ToArray();
+                    return messageList.Where(m => ulong.Parse(m.Identifier) > ulong.Parse(identifier)).ToList();
 
-                return messageList.ToArray();
+                return messageList;
             }
             catch (OperationCanceledException)
             {
-                return new ConversationItem[0]; // expected case
+                return new List<ConversationItem>(); // expected case
             }
             catch (Exception ex)
             {
                 string message = $"Failed to load conversation: {ex.Message}";
                 if (message.Contains("is an invalid start of a value")) message = "You are not connected to the internet, or Discord's servers are down.";
-                OnError?.Invoke(this, new PluginMessageEventArgs(message));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, message));
                 _activeChannelId = null;
-                return new ConversationItem[0];
+                return new List<ConversationItem>();
             }
         }
 
@@ -638,7 +615,7 @@ namespace Discord
                                 var item = await MessageParser.ParseMessage(node).ConfigureAwait(false);
 
                                 // last msg by the logged in user
-                                if (item is Message msg && msg.Sender?.Identifier == MyInformation?.Identifier)
+                                if (item is Message msg && msg.Author?.Identifier == _currentUser?.Identifier)
                                 {
                                     // replace n call
                                     string modifiedText = msg.Text.Replace(oldText, newText);
@@ -671,7 +648,7 @@ namespace Discord
                             var item = await MessageParser.ParseMessage(node).ConfigureAwait(false);
 
                             // last msg by the logged in user
-                            if (item is Message msg && msg.Sender?.Identifier == MyInformation?.Identifier)
+                            if (item is Message msg && msg.Author?.Identifier == _currentUser?.Identifier)
                             {
                                 // call delete backend directly
                                 await DeleteMessage(identifier, msg.Identifier).ConfigureAwait(false);
@@ -723,7 +700,7 @@ namespace Discord
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs($"Failed to send message: {ex.Message}"));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Failed to send message: {ex.Message}"));
                 return false;
             }
         }
@@ -755,7 +732,7 @@ namespace Discord
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs($"Failed to edit message: {ex.Message}"));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Failed to edit message: {ex.Message}"));
                 return false;
             }
         }
@@ -787,7 +764,7 @@ namespace Discord
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs($"Failed to delete message: {ex.Message}"));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Failed to delete message: {ex.Message}"));
                 return false;
             }
         }
@@ -813,7 +790,7 @@ namespace Discord
             }
             catch (Exception ex)
             {
-                OnError?.Invoke(this, new PluginMessageEventArgs($"Failed to set typing status: {ex.Message}"));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Error, $"Failed to set typing status: {ex.Message}"));
                 return false;
             }
         }
@@ -852,7 +829,7 @@ namespace Discord
             else return false;
         }
 
-        public async Task<bool> SetTextStatus(string custStatus)
+        public async Task<bool> SetMood(string custStatus)
         {
             if (String.IsNullOrEmpty(custStatus)) return false;
 
@@ -898,24 +875,24 @@ namespace Discord
                                 users.Remove(e.Sender.Identifier);
 
                             var message = new Message(e.Identifier, e.Sender, e.Timestamp, e.Text, e.Attachments, e.ParentMessage);
-                            MessageEvent?.Invoke(this, new MessageRecievedEventArgs(e.ChannelId, message, CheckIfGuildChannel(e)));
+                            MessageTube?.Invoke(this, new MessageRecievedBottle(e.ChannelId, message, CheckIfGuildChannel(e)));
                             break;
                         }
                     case MessageEventType.Update:
                         {
                             var message = new Message(e.Identifier, e.Sender, e.Timestamp, e.Text, e.Attachments, e.ParentMessage);
-                            MessageEvent?.Invoke(this, new MessageEditedEventArgs(e.ChannelId, e.Identifier, message));
+                            MessageTube?.Invoke(this, new MessageEditedBottle(e.ChannelId, e.Identifier, message));
                             break;
                         }
                     case MessageEventType.Delete:
                         {
-                            MessageEvent?.Invoke(this, new MessageDeletedEventArgs(e.ChannelId, e.Identifier));
+                            MessageTube?.Invoke(this, new MessageDeletedBottle(e.ChannelId, e.Identifier));
                             break;
                         }
                     case MessageEventType.BulkDelete:
                         {
                             foreach (var id in e.BulkIdentifiers ?? Enumerable.Empty<string>())
-                                MessageEvent?.Invoke(this, new MessageDeletedEventArgs(e.ChannelId, id));
+                                MessageTube?.Invoke(this, new MessageDeletedBottle(e.ChannelId, id));
                             break;
                         }
                 }
@@ -960,11 +937,11 @@ namespace Discord
                 };
                 socket.OnHangUp += () =>
                 {
-                    OnCallStateChanged?.Invoke(this, new CallEventArgs(convo_id, CallState.Ended));
+                    CallStateChangedTube?.Invoke(this, new CallBottle(convo_id, CallState.Ended));
                 };
                 socket.OnCallFailed += reason =>
                 {
-                    OnCallStateChanged?.Invoke(this, new CallEventArgs(convo_id, CallState.Failed, reason));
+                    CallStateChangedTube?.Invoke(this, new CallBottle(convo_id, CallState.Failed, reason));
                 };
                 _callSocket = socket;
                 await socket.ConnectAsync();

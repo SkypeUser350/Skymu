@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -16,7 +16,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Xml.Linq;
 using Skymu.Preferences;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
 
 namespace Skymu.Credentials
@@ -25,7 +25,7 @@ namespace Skymu.Credentials
     {
         private static readonly string FilePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Skymu",
+            Universal.Name,
 #if DEBUG
             Settings.SeparateCredentialsForDebug ? "credentialsDebug.xml" : "credentials.xml"
 #else

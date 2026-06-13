@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -13,16 +13,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
 using ToxOO;
 using Yggdrasil;
-using Yggdrasil.Classes;
+using Yggdrasil.Bottles;
+using Yggdrasil.Models;
 using Yggdrasil.Enumerations;
-using static System.Net.Mime.MediaTypeNames;
 using static Tox.Helper;
 using static ToxCore;
 
@@ -122,9 +119,9 @@ namespace Tox
             var core = GC(user_data);
             Debug.WriteLine($"Tox: Got connection status {status}");
             if (status == Tox_Connection.NONE)
-                core.currentUser.ConnectionStatus = PresenceStatus.Offline;
+                core._currentUser.ConnectionStatus = PresenceStatus.Offline;
             else
-                core.currentUser.ConnectionStatus = MapStatus(core.tox.status);
+                core._currentUser.ConnectionStatus = MapStatus(core.tox.status);
         }
 
         #endregion
@@ -138,6 +135,7 @@ namespace Tox
         {
             Core core = GC(user_data);
             core.friends[fid].DisplayName = name;
+            core.SAVE();
         }
 
         tox_friend_status_message_cb _OnFriendStatusMessage;
@@ -145,6 +143,7 @@ namespace Tox
         {
             Core core = GC(user_data);
             core.friends[fid].Status = message;
+            core.SAVE();
         }
 
 
@@ -153,6 +152,7 @@ namespace Tox
         {
             Core core = GC(user_data);
             core.friends[fid].ConnectionStatus = MapStatus(status);
+            core.SAVE();
         }
 
         tox_friend_connection_status_cb _OnFriendConnectionStatus;
@@ -161,8 +161,10 @@ namespace Tox
             Core core = GC(user_data);
             if (connection_status != Tox_Connection.NONE)
             {
+                if (core.pfpSent.Contains(fid)) return;
+                core.pfpSent.Add(fid);
                 Debug.WriteLine($"Tox: Sending my PFP to {fid} as a {connection_status} connection was established");
-                byte[] pfp = core.currentUser.ProfilePicture;
+                byte[] pfp = core._currentUser.ProfilePicture;
                 byte[] hash = new byte[tox_hash_length()];
                 tox_hash(hash, pfp, (UIntPtr)pfp.Length);
                 UInt32 trid = tox_file_send(tox, fid, Tox_File_Kind.AVATAR, (UInt64)pfp.Length, 0, Encoding.ASCII.GetString(hash), (UIntPtr)tox_hash_length(), out var _);
@@ -171,7 +173,7 @@ namespace Tox
                     core.transfers.Remove(trid);
                     core.transfer_info.Remove(trid);
                 }
-                core.transfers.Add(trid, core.currentUser.ProfilePicture);
+                core.transfers.Add(trid, core._currentUser.ProfilePicture);
                 core.transfer_info.Add(trid, (Tox_File_Kind.AVATAR, ""));
                 if (core.pendingSendFriend.TryGetValue(fid, out var ls))
                 {
@@ -187,9 +189,9 @@ namespace Tox
                             else
                             {
                                 if (msg.type == Tox_Message_Type.ACTION)
-                                    core.messages.Add((UInt32)mid, new ActionMessage(mid + "_" + GUID(), core.currentUser, TIME(), msg.text));
+                                    core.messages.Add((UInt32)mid, new ActionMessage(mid + "_" + GUID(), core._currentUser, TIME(), msg.text));
                                 else
-                                    core.messages.Add((UInt32)mid, new Message(mid + "_" + GUID(), core.currentUser, TIME(), msg.text));
+                                    core.messages.Add((UInt32)mid, new Message(mid + "_" + GUID(), core._currentUser, TIME(), msg.text));
                                 sucs.Add(msg);
                             }
                         }
@@ -205,6 +207,7 @@ namespace Tox
                 Debug.WriteLine($"Tox: Connection with {fid} got terminated");
                 core.friends[fid].ConnectionStatus = PresenceStatus.Offline;
             }
+            core.SAVE();
         }
 
         #endregion
@@ -231,8 +234,11 @@ namespace Tox
             {
                 core.messages.Remove(mid);
                 message.Time = TIME();
-                core.UCP(_ => core.RaiseMessageEvent(new MessageRecievedEventArgs(BATS(new Friend(tox, fid).publicKey), message, false)));
+                core.UCP(_ => core.RaiseMessageEvent(new MessageRecievedBottle(BATS(new Friend(tox, fid).publicKey), message, false)));
             }
+            else
+                Debug.WriteLine($"Tox: Got read receipt by {fid}, {mid} but message does not exist");
+            core.SAVE();
         }
 
         tox_friend_request_cb _OnFriendRequest;
@@ -248,7 +254,8 @@ namespace Tox
                 core.SAVE();
                 return;
             }
-            core.SYN(new PluginYesNoEventArgs(
+            core.SYN(new DialogBottle(
+                DialogType.Question,
                 $"Do you want to accept the friend request from {BATS(pkey)} with the message: {message}",
                 accept =>
                 {
@@ -259,8 +266,8 @@ namespace Tox
                     var f = new User(bpkey, bpkey, bpkey);
                     var dm = new DirectMessage(f, 0, BATS(pkey));
                     core.friends[fid] = f;
-                    core.ContactsList.Add(dm);
-                    core.RecentsList.Add(dm);
+                    core.LIST(new ListItemUpdatedBottle(ListType.Contacts, dm));
+                    core.LIST(new ListItemUpdatedBottle(ListType.Conversations, dm));
                     return null;
                 }
             ));
@@ -276,8 +283,9 @@ namespace Tox
             else
                 message = new Message($"{fid}_{GUID()}", core.friends[fid], TIME(), msg);
             core.UCP(_ =>
-                core.RaiseMessageEvent(new MessageRecievedEventArgs(BATS(new Friend(tox, fid).publicKey), message, false))
+                core.RaiseMessageEvent(new MessageRecievedBottle(BATS(new Friend(tox, fid).publicKey), message, false))
             );
+            core.SAVE();
         }
 
         // TODO: lossy_packet
@@ -365,7 +373,7 @@ namespace Tox
                     core.friends[f.id],
                     TIME(),
                     $"I have tried to send you a file {filename}, but the Tox plugin currently does not support that.");
-                core.RaiseMessageEvent(new MessageRecievedEventArgs(fid.ToString(), message, false));
+                core.RaiseMessageEvent(new MessageRecievedBottle(fid.ToString(), message, false));
                 tox_file_control(tox, fid, file_number, Tox_File_Control.CANCEL, out _);
                 f.SendMessage(Tox_Message_Type.NORMAL, FILE_NOT_SUPPORTED);
             }
@@ -396,13 +404,9 @@ namespace Tox
                     File.WriteAllBytes(Path.Combine(avatar_cache_dir, pkey + ".png"), bdata);
                     core.UCP(_ =>
                     {
-                        foreach (var f in core.ContactsList)
-                            if (f.Identifier == pkey)
-                                f.ProfilePicture = bdata;
-                        foreach (var conv in core.RecentsList)
-                            if (conv is DirectMessage dm)
-                                if (dm.Partner.Identifier == pkey)
-                                    dm.Partner.ProfilePicture = bdata;
+                        foreach (var f in core.friends)
+                            if (f.Key == fid)
+                                f.Value.ProfilePicture = bdata;
                     });
                 }
                 core.transfers.Remove(file_number);
@@ -451,11 +455,11 @@ namespace Tox
                         {
                             Message message;
                             if (msg.type == Tox_Message_Type.ACTION)
-                                message = new ActionMessage(GUID(), core.currentUser, TIME(), msg.text);
+                                message = new ActionMessage(GUID(), core._currentUser, TIME(), msg.text);
                             else
-                                message = new Message(GUID(), core.currentUser, TIME(), msg.text);
+                                message = new Message(GUID(), core._currentUser, TIME(), msg.text);
                             core.UCP(_ =>
-                                core.RaiseMessageEvent(new MessageRecievedEventArgs(BATS(c.cid), message, false))
+                                core.RaiseMessageEvent(new MessageRecievedBottle(BATS(c.cid), message, false))
                             );
                             sucs.Add(msg);
                         }
@@ -477,15 +481,15 @@ namespace Tox
             var pkey = BATS(p.publicKey);
             // You can receive your own message too. In this case, we can abuse that to easily confirm message send.
             User sender = new User(p.name, pkey, pkey, null, PresenceStatus.Online, GrabAvatar(pkey));
-            if (BATS(c.peers[pid].publicKey) == core.currentUser.Identifier)
-                sender = core.currentUser;
+            if (BATS(c.peers[pid].publicKey) == core._currentUser.Identifier)
+                sender = core._currentUser;
             Message message;
             if (type == Tox_Message_Type.ACTION)
                 message = new ActionMessage($"{c.cid}/{pid}_{GUID()}", sender, TIME(), msg);
             else
                 message = new Message($"{c.cid}/{pid}_{GUID()}", sender, TIME(), msg);
             core.UCP(_ =>
-                core.RaiseMessageEvent(new MessageRecievedEventArgs(BATS(c.cid), message, false))
+                core.RaiseMessageEvent(new MessageRecievedBottle(BATS(c.cid), message, false))
             );
         }
 
@@ -497,14 +501,14 @@ namespace Tox
             core.UCP(_ =>
             {
                 var pkey = BATS(new Conference(tox, cid).cid);
-                foreach (var conv in core.RecentsList)
-                    if (conv is Group c)
-                        if (c.Identifier == pkey)
-                        {
-                            c.DisplayName = title;
-                            break;
-                        }
+                foreach (var conv in core.conferences)
+                    if (conv.Key == cid)
+                    {
+                        conv.Value.DisplayName = title;
+                        break;
+                    }
             });
+            core.SAVE();
         }
 
         tox_conference_peer_name_cb _OnConferencePeerName;
@@ -514,29 +518,31 @@ namespace Tox
             core.UCP(_ =>
             {
                 var pkey = BATS(new Conference(tox, cid).cid);
-                foreach (var conv in core.RecentsList)
-                    if (conv is Group c)
-                        if (c.Identifier == pkey)
-                        {
-                            foreach(var p in c.Members)
-                                if (p.Identifier == BATS(new Conference(tox, cid).peers[pid].publicKey))
-                                {
-                                    p.DisplayName = name;
-                                    break;
-                                }
-                            break;
-                        }
+                foreach (var conv in core.conferences)
+                    if (conv.Key == cid)
+                    {
+                        foreach (var p in conv.Value.Members)
+                            if (p.Identifier == BATS(new Conference(tox, cid).peers[pid].publicKey))
+                            {
+                                p.DisplayName = name;
+                                break;
+                            }
+                        break;
+                    }
             });
+            core.SAVE();
         }
 
         tox_conference_peer_list_changed_cb _OnConferencePeerListChanged;
         void OnConferencePeerListChanged(IntPtr tox, UInt32 cid, IntPtr user_data)
         {
+            var core = GC(user_data);
             Debug.WriteLine($"Tox: Peer list for conference {cid} changed");
-            GC(user_data).UCP(_ =>
+            core.UCP(_ =>
             {
                 ConferencePeerListRefresh(GC(user_data), new Conference(tox, cid));
             });
+            core.SAVE();
         }
 
         #endregion
@@ -597,7 +603,7 @@ namespace Tox
         {
             var core = GC(user_data);
             Debug.WriteLine($"Tox: Incoming call from {fid} with audio {audio_enabled}, video {video_enabled}");
-            core.CALL(new CallEventArgs(fid.ToString(), CallState.Ringing, core.friends[fid]));
+            core.CALL(new CallBottle(fid.ToString(), CallState.Ringing, core.friends[fid]));
         }
 
         // TODO: call_state
@@ -615,7 +621,7 @@ namespace Tox
             if ((state & Toxav_Friend_Call_State.FINISHED) != 0)
             {
                 Debug.WriteLine($"Tox: Call with {fid} ended/declined");
-                core.CSC(new CallEventArgs(fid.ToString(), CallState.Ended));
+                core.CSC(new CallBottle(fid.ToString(), CallState.Ended));
                 core.avWaiter?.TrySetResult(false);
                 return;
             }

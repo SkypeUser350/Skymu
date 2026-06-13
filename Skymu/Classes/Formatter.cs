@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -29,7 +29,7 @@ using Markdig.Syntax.Inlines;
 using Skymu.Emoticons;
 using Skymu.Helpers;
 using Skymu.Preferences;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 using MarkdigBlock = Markdig.Syntax.Block;
 using MarkdigInline = Markdig.Syntax.Inlines.Inline;
 using MdTable = Markdig.Extensions.Tables.Table;
@@ -680,7 +680,7 @@ namespace Skymu.Formatting
 
         internal static SliceControl MakeEmoji(string emojiName)
         {
-            BitmapImage sourceImg = ImageHelper.Generate(
+            BitmapImage sourceImg = ImageHelper.FreezeLoadFromPackUri(
                 $"pack://application:,,,/Emoji/{emojiName}/views/default_20_anim/index.png"
             );
             var sliceControl = new SliceControl
@@ -855,7 +855,7 @@ namespace Skymu.Formatting
                                         if (args.Length >= 1 && args[0] is Dictionary<string, object> dic)
                                             href = dic[key]?.ToString() ?? "null";
                                     }
-                                    if (href.StartsWith("skymu:"))
+                                    if (href.StartsWith($"{Universal.Name.ToLowerInvariant()}:"))
                                         // handle internal skymu links here if needed
                                         hyperlink.Click += (s, e) => Universal.URIHandler(href.Substring(6));
                                     else if (Uri.TryCreate(href, UriKind.Absolute, out Uri uri))
@@ -869,7 +869,7 @@ namespace Skymu.Formatting
                                 {
                                     var name = elem.Attribute("name")?.Value;
                                     if (name != null)
-                                        hyperlink.Click += (s, e) => Universal.URIHandler($"skymu:#{name}");
+                                        hyperlink.Click += (s, e) => Universal.URIHandler($"{Universal.Name.ToLowerInvariant()}:#{name}");
                                 }
                                 inlines.Add(hyperlink);
                                 break;

@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -386,7 +386,7 @@ namespace Discord.Networking
                 EventType = MessageEventType.Create,
                 ChannelId = channelId,
                 Identifier = messageItem.Identifier,
-                Sender = messageItem.Sender,
+                Sender = messageItem.Author,
                 Timestamp = messageItem.Time,
                 Text = messageItem.Text,
                 Attachments = messageItem.Attachments,
@@ -407,7 +407,7 @@ namespace Discord.Networking
                 EventType = MessageEventType.Update,
                 ChannelId = channelId,
                 Identifier = messageItem.Identifier,
-                Sender = messageItem.Sender,
+                Sender = messageItem.Author,
                 Timestamp = messageItem.Time,
                 Text = messageItem.Text,
                 Attachments = messageItem.Attachments,

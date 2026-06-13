@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Yggdrasil is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -18,6 +18,21 @@ namespace Yggdrasil.Enumerations
         Passwordless,
         External,
         Token,
+    }
+
+    public enum DialogType
+    {
+        Error,
+        Warning,
+        Information,
+        Question
+    }
+
+    public enum ListType
+    {
+        Contacts,
+        Conversations,
+        Servers
     }
 
     public enum LoginResult
@@ -51,12 +66,6 @@ namespace Yggdrasil.Enumerations
         Restricted,
         NoAccess,
         Forum,
-    }
-
-    public enum DialogType
-    {
-        Error,
-        Warning,
     }
 
     public enum Fetch

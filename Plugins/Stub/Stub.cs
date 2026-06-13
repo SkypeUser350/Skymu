@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -21,7 +21,8 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Yggdrasil;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
+using Yggdrasil.Bottles;
 using Yggdrasil.Enumerations;
 
 namespace Stub
@@ -30,10 +31,9 @@ namespace Stub
     {
         #region Variables
 
-        public event EventHandler<PluginMessageEventArgs> OnError;
-        public event EventHandler<PluginMessageEventArgs> OnWarning;
-        public event EventHandler<PluginYesNoEventArgs> ShowYesNo;
-        public event EventHandler<MessageEventArgs> MessageEvent;
+        public event EventHandler<DialogBottle> DialogTube;
+        public event EventHandler<MessageBottle> MessageTube;
+        public event EventHandler<ListBottle> ListTube;
         public string Name
         {
             get { return "Stub plugin"; }
@@ -58,17 +58,6 @@ namespace Stub
             }
         }
 
-        public User MyInformation { get; private set; }
-
-        public ObservableCollection<DirectMessage> ContactsList { get; private set; } =
-            new ObservableCollection<DirectMessage>();
-
-        public ObservableCollection<Conversation> RecentsList { get; private set; } =
-            new ObservableCollection<Conversation>();
-
-        public ObservableCollection<Server> ServerList { get; private set; } =
-            new ObservableCollection<Server>();
-
         public ObservableCollection<User> TypingUsersList { get; private set; } =
             new ObservableCollection<User>();
 
@@ -86,36 +75,36 @@ namespace Stub
             _out = null;
         }
 
-        public async Task<LoginResult> Authenticate(
+        public Task<LoginResult> Authenticate(
             AuthenticationMethod authType,
             string username,
             string password = null
         )
         {
             Me = new User(username, username, username);
-            MessageEvent.Invoke(
+            MessageTube.Invoke(
                 this,
-                new MessageRecievedEventArgs(
+                new MessageRecievedBottle(
                     "13414",
                     new Message("20202", users[0], new DateTime(2025, 4, 30, 8, 14, 0), "Hello"),
                     false
                 )
             );
-            return LoginResult.Success;
+            return Task.FromResult(LoginResult.Success);
         }
 
-        public async Task<LoginResult> Authenticate(SavedCredential autoLoginCredentials)
+        public Task<LoginResult> Authenticate(SavedCredential autoLoginCredentials)
         {
             Me = autoLoginCredentials.User;
-            return LoginResult.Success;
+            return Task.FromResult(LoginResult.Success);
         }
 
-        public async Task<LoginResult> AuthenticateTwoFA(string code) => LoginResult.Success;
+        public Task<LoginResult> AuthenticateTwoFA(string code) { return Task.FromResult(LoginResult.Success); }
 
-        public async Task<SavedCredential> StoreCredential()
+        public Task<SavedCredential> StoreCredential()
         {
             // TODO: Fix logout return new SavedCredential(MyInformation, string.Empty, AuthenticationMethod.Token, InternalName);
-            return null;
+            return Task.FromResult<SavedCredential>(null);
         }
 
         public Task<string> GetQRCode()
@@ -141,26 +130,26 @@ namespace Stub
                     user = group.Members[0];
                 else
                     return Task.FromResult(false);
-                OnIncomingCall?.Invoke(this, new CallEventArgs("TotallyRandomIncomingCall", CallState.Ringing, user));
+                IncomingCallTube?.Invoke(this, new CallBottle("TotallyRandomIncomingCall", CallState.Ringing, user));
                 return Task.FromResult(true);
             }
             if (text != null)
             {
                 if (attachment != null)
-                    OnWarning?.Invoke(
+                    DialogTube?.Invoke(
                         this,
-                        new PluginMessageEventArgs((action ? "Action message" : "Message") + " with text and attachment sent.")
+                        new DialogBottle(DialogType.Warning, (action ? "Action message" : "Message") + " with text and attachment sent.")
                     );
                 else
-                    OnWarning?.Invoke(this, new PluginMessageEventArgs("Text-only " + (action ? "action" : "") + " message sent."));
+                    DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Text-only " + (action ? "action" : "") + " message sent."));
             }
             else
-                OnWarning?.Invoke(
+                DialogTube?.Invoke(
                     this,
-                    new PluginMessageEventArgs("Attachment-only message sent.")
+                    new DialogBottle(DialogType.Warning, "Attachment-only message sent.")
                 );
             if (parent_message_identifier != null)
-                OnWarning?.Invoke(this, new PluginMessageEventArgs("Message references a parent."));
+                DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Message references a parent."));
             TypingUsersList.Clear();
             TypingUsersList.Add(new User("Nova", "20202", "20202"));
             TypingUsersList.Add(new User("omega", "20203", "20203"));
@@ -172,10 +161,10 @@ namespace Stub
             {
                 await Task.Delay(3000);
                 // Make the UI recognize that the message was sent, adding the timestamp and removing the throbber (loading wheel)
-                MessageEvent?.Invoke(this, new MessageRecievedEventArgs(identifier,
+                MessageTube?.Invoke(this, new MessageRecievedBottle(identifier,
                     action
-                    ? new ActionMessage(identifier, MyInformation, DateTimeOffset.UtcNow.DateTime, text)
-                    : new Message(identifier, MyInformation, DateTimeOffset.UtcNow.DateTime, text)
+                    ? new ActionMessage(identifier, Me, DateTimeOffset.UtcNow.DateTime, text)
+                    : new Message(identifier, Me, DateTimeOffset.UtcNow.DateTime, text)
                     , false)
                 );
             });
@@ -189,7 +178,7 @@ namespace Stub
             string newText
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message editing is not implemented."));
+            DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Message editing is not implemented."));
             return Task.FromResult(false);
         }
 
@@ -198,11 +187,11 @@ namespace Stub
             string messageId
         )
         {
-            OnWarning?.Invoke(this, new PluginMessageEventArgs("Message deletion is not implemented."));
+            DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Message deletion is not implemented."));
             return Task.FromResult(false);
         }
 
-        public Task<ConversationItem[]> FetchMessages(
+        public Task<List<ConversationItem>> FetchMessages(
             Conversation conversation,
             Fetch fetch_type,
             int message_count,
@@ -346,13 +335,14 @@ namespace Stub
 
             #endregion
 
-            return Task.FromResult(messageList.ToArray());
+            return Task.FromResult(messageList);
         }
 
-        public Task<bool> PopulateServerList()
+        public Task<List<Server>> FetchServers()
         {
+            List<Server> servers = new List<Server>();
             string id = "2132";
-            ServerList.Add(
+            servers.Add(
                 new Server(
                     "Epic gamer soyciety",
                     id,
@@ -364,22 +354,21 @@ namespace Stub
                     }
                 )
             );
-            return Task.FromResult(true);
+            return Task.FromResult(servers);
         }
 
-        public Task<bool> PopulateUserInformation()
+        public Task<User> GetUserInfo()
         {
             _uiContext = SynchronizationContext.Current;
             Me.Status = "Need an Attorney? Better Call Saul! (505) 503-4455";
             Me.ConnectionStatus = PresenceStatus.Online;
-            MyInformation = Me;
-            return Task.FromResult(true);
+            return Task.FromResult(Me);
         }
 
-        public Task<bool> PopulateContactsList()
+        public Task<List<DirectMessage>> FetchContacts()
         {
-            ContactsList.Clear();
-            ContactsList.Add(
+            List<DirectMessage> contacts = new List<DirectMessage>();
+            contacts.Add(
                 new DirectMessage(
                     new User(
                         "Skymu user 1",
@@ -392,19 +381,19 @@ namespace Stub
                     "u1"
                 )
             );
-            ContactsList.Add(
+            contacts.Add(
                 new DirectMessage(
                     new User("Skymu user 2", "u2", "u2", "HELLO", PresenceStatus.Away),
                     0,
                     "u2"
                 )
             );
-            return Task.FromResult(true);
+            return Task.FromResult(contacts);
         }
 
-        public Task<bool> PopulateRecentsList()
+        public Task<List<Conversation>> FetchConversations()
         {
-            RecentsList.Clear();
+            List<Conversation> conversations = new List<Conversation>();
 
             int dayOffset = 0;
             foreach (var user in users)
@@ -424,7 +413,7 @@ namespace Stub
                         .Now.AddDays(-(dayOffset - 2))
                         .AddHours(-rand.Next(0, 12));
                 }
-                RecentsList.Add(
+                conversations.Add(
                     new DirectMessage(
                         user,
                         rand.Next(0, 5),
@@ -435,7 +424,7 @@ namespace Stub
                 dayOffset++;
             }
 
-            RecentsList.Add(
+            conversations.Add(
                 new Group(
                     "Giga based coalition",
                     "067",
@@ -449,7 +438,7 @@ namespace Stub
             if (presenceTimer == null)
                 presenceTimer = new Timer(UpdatePresence, null, 0, 500);
 
-            return Task.FromResult(true);
+            return Task.FromResult(conversations);
         }
 
         public ClickableConfiguration[] ClickableConfigurations
@@ -466,7 +455,7 @@ namespace Stub
             }
         }
 
-        public Task<bool> SetTextStatus(string status)
+        public Task<bool> SetMood(string status)
         {
             return Task.FromResult(true);
         }
@@ -556,25 +545,25 @@ namespace Stub
             );
         }
 
-        public async Task<bool> EndCall(ActiveCall call)
+        public Task<bool> EndCall(ActiveCall call)
         {
             _waiter?.TrySetResult(false);
             _out?.Stop();
             _out?.Dispose();
             _out = null;
-            return true;
+            return Task.FromResult(true);
         }
 
         public async Task<ActiveCall> AnswerCall(string convo_id) => await StartCall(convo_id, false, true);
 
-        public async Task<bool> DeclineCall(string convo_id) => false;
+        public Task<bool> DeclineCall(string convo_id) => Task.FromResult(false);
 
-        public async Task<bool> SetMuted(ActiveCall call, bool muted) => false;
+        public Task<bool> SetMuted(ActiveCall call, bool muted) => Task.FromResult(false);
 
-        public async Task<bool> SetVideoEnabled(ActiveCall call, bool enabled) => false;
+        public Task<bool> SetVideoEnabled(ActiveCall call, bool enabled) => Task.FromResult(false);
 
-        public event EventHandler<CallEventArgs> OnIncomingCall;
-        public event EventHandler<CallEventArgs> OnCallStateChanged;
+        public event EventHandler<CallBottle> IncomingCallTube;
+        public event EventHandler<CallBottle> CallStateChangedTube;
 
         public bool SupportsVideoCalls => false;
 
@@ -594,7 +583,7 @@ namespace Stub
                     members[i] = users[i % users.Length];
                 }
                 return new Metadata[2] {
-                    new Group("Mega Based Caolition", "mbc", 0, members),
+                    new Group("Mega Based Coalition", "mbc", 0, members),
                     new User(query, query, query)
                 };
             }
@@ -604,13 +593,16 @@ namespace Stub
             };
         }
 
-        public async Task<bool> AddContact(Metadata contact, string message)
+        public Task<bool> AddContact(Metadata contact, string message)
         {
             if (contact is User user)
-                ContactsList.Add(new DirectMessage(user, 0, user.Identifier));
+                ListTube?.Invoke(this, new ListItemUpdatedBottle(ListType.Contacts, new DirectMessage(user, 0, user.Identifier)));
             else if (contact is Group group)
-                RecentsList.Add(group);
-            return false;
+                ListTube?.Invoke(this, new ListItemUpdatedBottle(ListType.Conversations, group));
+            else
+                return Task.FromResult(false);
+            return Task.FromResult(true);
+
         }
 
         #endregion
@@ -697,7 +689,7 @@ namespace Stub
         {
             new ExtraConfiguration(
                 "Hello world",
-                () => OnWarning?.Invoke(this, new PluginMessageEventArgs("Hello world!")),
+                () => DialogTube?.Invoke(this, new DialogBottle(DialogType.Warning, "Hello world!")),
                 "Show Hello World!")
         };
 

@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -34,7 +34,7 @@ namespace Skymu.Forms
             InitializeComponent();
 
             string background_color;
-            if (Universal.Interface == "SeanKype" || Universal.Interface == "Pontis") background_color = "Metro.Background";
+            if (Universal.Theme == "Skype7" || Universal.Theme == "Skype6") background_color = "Metro.Background";
             else background_color = "Background";
             Background = (SolidColorBrush)Application.Current.Resources[background_color];
 

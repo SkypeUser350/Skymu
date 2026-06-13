@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -79,7 +79,7 @@ namespace Skymu.Windows
         {
             string path = !string.IsNullOrEmpty(custom_path)
                 ? custom_path
-                : $"pack://application:,,,/{Preferences.Settings.Interface}/Assets/Universal/Icon/skype-status.png";
+                : $"pack://application:,,,/Themes/{Preferences.Settings.Theme}/Assets/Universal/Icon/skype-status.png";
 
             var sri = System.Windows.Application.GetResourceStream(new Uri(path, UriKind.Absolute));
             if (sri == null)

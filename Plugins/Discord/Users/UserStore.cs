@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// This plugin is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -12,7 +12,7 @@
 using Discord.Helpers;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 
 namespace Discord.Users
 {

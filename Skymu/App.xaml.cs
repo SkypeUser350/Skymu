@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -9,14 +9,6 @@
 // License: https://skymu.app/legal/license
 /*==========================================================*/
 
-using Skymu.Forms;
-using Skymu.Migration;
-using Skymu.Plugins;
-using Skymu.Preferences;
-using Skymu.Sounds;
-using Skymu.Theming;
-using Skymu.UserDirectory;
-using Skymu.Windows;
 using System;
 using System.Diagnostics;
 using System.Globalization;
@@ -29,11 +21,20 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using Skymu.Forms;
+using Skymu.Migration;
+using Skymu.Plugins;
+using Skymu.Preferences;
+using Skymu.Sounds;
+using Skymu.Theming;
+using Skymu.UserDirectory;
+using Skymu.Windows;
 using Yggdrasil;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
+using Yggdrasil.Enumerations;
+using Yggdrasil.Bottles;
 using Yggdrasil.Networking;
 
 namespace Skymu
@@ -44,14 +45,19 @@ namespace Skymu
         public static ICall CallPlugin;
         public static ICore[] PluginList;
         public static bool HasLoggedIn = false;
-        public static readonly string Interface = Settings.Interface;
+        public static readonly string Theme = Settings.Theme;
 
-        public const string Name = "Skymu";
-        public const string BuildVersion = "0.4.2";
-        public const string BuildName = "Erudite Centaur";
+        public const string Name = "Skymu"; // If you are forking Skymu, change this to update the name everywhere, even internally. Do not use special characters or spaces.
+        public const string BuildVersion = "0.4.4";
+        public const string BuildName = "Exalted Emperor";
         public static string Platform = Runtime.DetectOS().ToDisplayString();
         public static string NetVersion = RuntimeInformation.FrameworkDescription;
-        public static bool DebugBuild = false;
+
+        #if DEBUG
+        internal const bool DebugBuild = true;
+        #else
+        internal const bool DebugBuild = false;
+        #endif
 
         public const string DISCORD_SERVER_INVITE = "https://skymu.app/discord";
         public const string SKYMU_WEBSITE_HELP = "https://skymu.app/wiki/about";
@@ -90,7 +96,12 @@ namespace Skymu
                 );
         }
 
-        private static void PluginPopup(object sender, PluginMessageEventArgs e, string prefix, WindowBase.IconType itype)
+        private static void PluginPopup(
+            object sender,
+            DialogBottle e,
+            string prefix,
+            WindowBase.IconType itype
+        )
         {
             Current.Dispatcher.BeginInvoke(
                 new Action(
@@ -114,31 +125,51 @@ namespace Skymu
             );
         }
 
-        public static void PluginErrorHandler(object sender, PluginMessageEventArgs e) => PluginPopup(sender, e, "Error in plugin ", WindowBase.IconType.Error);
-        public static void PluginWarningHandler(object sender, PluginMessageEventArgs e) => PluginPopup(sender, e, "Warning from plugin ", WindowBase.IconType.Information);
-        public static void PluginYesNoHandler(object sender, PluginYesNoEventArgs e)
+        public static void PluginDialogHandler(object sender, DialogBottle e)
         {
-            Current.Dispatcher.BeginInvoke(
-                new Action(
-                    delegate
-                    {
-                        Dialog dialog = new Dialog(
-                            type: WindowBase.IconType.Information,
-                            content: e.Message,
-                            header: ((ICore)sender).Name + " requests your choice",
-                            brText: Lang["sF_CONFIRM_YES"],
-                            blEnabled: true,
-                            blText: Lang["sF_CONFIRM_NO_BTN"]
-                        );
-                        dialog.BRAction = () => { e.Action(true); dialog.Close(); };
-                        dialog.BLAction = () => { e.Action(false); dialog.Close(); };
-                        dialog.ShowDialog();
-                    }
-                )
-            );
+            switch (e.Type)
+            {
+                case DialogType.Warning:
+                    PluginPopup(sender, e, "Warning from plugin ", WindowBase.IconType.Information);
+                    break;
+                case DialogType.Error:
+                    PluginPopup(sender, e, "Error in plugin ", WindowBase.IconType.Error);
+                    break;
+                case DialogType.Information:
+                    PluginPopup(sender, e, "Message from plugin ", WindowBase.IconType.Information);
+                    break;
+                case DialogType.Question:
+                    Current.Dispatcher.BeginInvoke(
+                        new Action(
+                            delegate
+                            {
+                                Dialog dialog = new Dialog(
+                                    type: WindowBase.IconType.Information,
+                                    content: e.Message,
+                                    header: ((ICore)sender).Name + " requests your choice",
+                                    brText: Lang["sF_CONFIRM_YES"],
+                                    blEnabled: true,
+                                    blText: Lang["sF_CONFIRM_NO_BTN"]
+                                );
+                                dialog.BRAction = () =>
+                                {
+                                    e.Action(true);
+                                    dialog.Close();
+                                };
+                                dialog.BLAction = () =>
+                                {
+                                    e.Action(false);
+                                    dialog.Close();
+                                };
+                                dialog.ShowDialog();
+                            }
+                        )
+                    );
+                    break;
+            }
         }
 
-        public static void PluginNotificationHandler(object sender, MessageEventArgs e)
+        public static void PluginNotificationHandler(object sender, MessageBottle e)
         {
             Current.Dispatcher.BeginInvoke(
                 new Action(
@@ -156,10 +187,13 @@ namespace Skymu
             {
                 try
                 {
-                    mutex = new Mutex(true,
+                    mutex = new Mutex(
+                        true,
                         "Local\\Skymu_SingleInstance_"
-                        + Assembly.GetExecutingAssembly().GetCustomAttribute<GuidAttribute>() ?? "INVALIDGUID",
-                        out var created);
+                            + Assembly.GetExecutingAssembly().GetCustomAttribute<GuidAttribute>()
+                            ?? "INVALIDGUID",
+                        out var created
+                    );
 
                     Debug.WriteLine($"[Universal] Mutex creation: {created}");
 
@@ -174,7 +208,9 @@ namespace Skymu
                             }
                         }
                         WriteToPipe("WINDOW_ACTIVATE");
-                        System.Windows.MessageBox.Show("Skymu is already running.\n\nYou can configure Skymu to allow running multiple instances at the same time in the Options menu.");
+                        System.Windows.MessageBox.Show(
+                            $"{Name} is already running.\n\nYou can configure {Name} to allow running multiple instances at the same time in the Options menu."
+                        );
                         Terminate();
                         return;
                     }
@@ -208,12 +244,15 @@ namespace Skymu
         {
             try
             {
-                return CultureInfo.GetCultures(CultureTypes.AllCultures)
-                    .FirstOrDefault(c =>
-                        c.NativeName.StartsWith(displayName) ||
-                        c.DisplayName.StartsWith(displayName) ||
-                        c.EnglishName.StartsWith(displayName)
-                    )?.Name ?? "en-US";
+                return CultureInfo
+                        .GetCultures(CultureTypes.AllCultures)
+                        .FirstOrDefault(c =>
+                            c.NativeName.StartsWith(displayName)
+                            || c.DisplayName.StartsWith(displayName)
+                            || c.EnglishName.StartsWith(displayName)
+                        )
+                        ?.Name
+                    ?? "en-US";
             }
             catch { }
             return "en-US";
@@ -222,22 +261,25 @@ namespace Skymu
         private void App_Startup(object sender, StartupEventArgs e)
         {
             if (!Settings.UseSystemCulture)
-                CultureInfo.CurrentCulture = new CultureInfo(GetCultureCode(Settings.Language), false);
+                CultureInfo.CurrentCulture = new CultureInfo(
+                    GetCultureCode(Settings.Language),
+                    false
+                );
             // TODO: Dynamically switch language without restart
-            switch (Interface)
+            switch (Theme)
             {
-                case "SeanKype":
-                    new SeanKype.Login().Show();
+                case "Skype7":
+                    new Skype7.Login().Show();
                     break;
-                case "Pontis":
-                    new Pontis.Login().Show();
+                case "Skype6":
+                    new Skype6.Login().Show();
                     break;
-                case "Sapphire":
-                    new Sapphire.Login().Show();
+                case "Skype4":
+                    new Skype4.Login().Show();
                     break;
-                case "Skyaeris":
+                case "Skype5":
                 default:
-                    new Skyaeris.Login().Show();
+                    new Skype5.Login().Show();
                     break;
             }
 
@@ -245,7 +287,7 @@ namespace Skymu
             {
                 while (true)
                 {
-                    var pipe = new NamedPipeServerStream("SkymuPipe", PipeDirection.In);
+                    var pipe = new NamedPipeServerStream($"{Name}Pipe", PipeDirection.In);
 
                     pipe.WaitForConnection();
 
@@ -292,21 +334,21 @@ namespace Skymu
                 if (ActiveViewModel != null)
                 {
                     Conversation found = null;
-                    foreach (var c in Universal.Plugin.RecentsList)
+                    foreach (var c in ActiveViewModel.ConversationList)
                         if ((c is DirectMessage u) && u.Partner.Username == skypename)
                         {
-                            found = c; break;
+                            found = c;
+                            break;
                         }
                     if (found == null)
-                        foreach (DirectMessage u in Universal.Plugin.ContactsList)
+                        foreach (DirectMessage u in ActiveViewModel.ContactList)
                             if (u.Partner.Username == skypename)
                             {
-                                found = u; break;
+                                found = u;
+                                break;
                             }
                     if (found != null)
-                        Current.Dispatcher.Invoke(() =>
-                            ActiveViewModel.SelectConversation(found)
-                        );
+                        Current.Dispatcher.Invoke(() => ActiveViewModel.SelectConversation(found));
                 }
             }
         }
@@ -346,7 +388,7 @@ namespace Skymu
             {
                 ExceptionHandler(
                     new Exception(
-                        "Skymu Exception Handling: CurrentDomain non-exception object thrown of an unknown nature.\n\n"
+                        $"{Name} Exception Handling: CurrentDomain non-exception object thrown of an unknown nature.\n\n"
                             + ev.ToString()
                     )
                 );
@@ -437,7 +479,11 @@ namespace Skymu
             frame.ShowDialog();
         }
 
-        public static void MessageBox(string content, string title = "Information", WindowBase.IconType icon = WindowBase.IconType.Information)
+        public static void MessageBox(
+            string content,
+            string title = "Information",
+            WindowBase.IconType icon = WindowBase.IconType.Information
+        )
         {
             new Dialog(
                 icon,
@@ -465,7 +511,7 @@ namespace Skymu
         {
             try
             {
-                var pipe = new NamedPipeClientStream(".", "SkymuPipe", PipeDirection.Out);
+                var pipe = new NamedPipeClientStream(".", $"{Name}Pipe", PipeDirection.Out);
 
                 pipe.Connect(1000);
 
@@ -477,28 +523,22 @@ namespace Skymu
                 writer.Dispose();
                 pipe.Dispose();
             }
-            catch
-            { }
+            catch { }
         }
 
         protected override void OnStartup(StartupEventArgs ev)
         {
-#if DEBUG
-DebugBuild = true;
-#endif
             this.DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             ApplyPresentationFramework(Settings.PresentationFramework);
             AutoLaunch.Initialize();
-            if (!ThemeManager.Scan())
+            if (!Colorizer.Scan())
                 Universal.ExceptionHandler(
-                    new Exception(
-                        "Could not find any compatible theme files in directory /Themes."
-                    )
+                    new Exception("Could not find any compatible colorways in directory /Colorways.")
                 );
-            ThemeManager.LoadFromSettings();
+            Colorizer.LoadFromSettings();
             Migrator.Run();
-            SkymuHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd("SkymuClient-" + BuildVersion);
+            SkymuHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd($"{Name}Client-" + BuildVersion);
             base.OnStartup(ev);
             Settings.Default.PropertyChanged += (sender, args) =>
             {
@@ -564,9 +604,7 @@ DebugBuild = true;
             }
             catch (Exception ex)
             {
-                Universal.MessageBox(
-                    $"Failed to apply presentation framework: {ex.Message}"
-                );
+                Universal.MessageBox($"Failed to apply presentation framework: {ex.Message}");
             }
         }
 

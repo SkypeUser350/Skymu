@@ -1,5 +1,5 @@
 /*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -13,7 +13,7 @@ using Skymu.ViewModels;
 using System;
 using System.Globalization;
 using System.Windows.Data;
-using Yggdrasil.Classes;
+using Yggdrasil.Models;
 
 namespace Skymu.Converters
 {

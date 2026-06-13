@@ -1,5 +1,5 @@
 ﻿/*==========================================================*/
-// Skymu is copyrighted by The Skymu Team.
+// Skymu is copyrighted by The Skymu Team, 2026.
 // For any inquiries or concerns, email contact@skymu.app.
 /*==========================================================*/
 // Modification or redistribution of this code is contingent
@@ -72,7 +72,7 @@ namespace Skymu.Sounds
             Load("busy", "BUSY.WAV");
         }
 
-        static void Load(string key, string filename, string path = "", string fallback = "Skymu")
+        static void Load(string key, string filename, string path = "", string fallback = Universal.Name)
         {
             if (path == "")
                 path = Settings.SoundPack.ToString();
@@ -102,7 +102,7 @@ namespace Skymu.Sounds
             }
 
             if (fallback != string.Empty && path != fallback)
-                Load(key, filename, fallback, "Skymu");
+                Load(key, filename, fallback, Universal.Name);
         }
 
         public static void Play(string key)
